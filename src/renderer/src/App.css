@@ -288,6 +288,7 @@ body {
   font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.35);
   text-transform: uppercase; letter-spacing: 0.06em;
 }
+.settings-label-rec { color: #C8A44A; font-size: 8px; text-transform: none; letter-spacing: 0; }
 .settings-input-wrap { display: flex; gap: 4px; }
 .settings-input {
   flex: 1; background: rgba(255,255,255,0.07);

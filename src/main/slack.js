@@ -45,18 +45,20 @@ Return ONLY a valid JSON array. If no actionables, return [].`
   return rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
 }
 
-export async function diagnoseSlack({ slackToken, claudeApiKey, groqApiKey, provider = 'groq', lookbackHours = 6 }) {
+export async function diagnoseSlack({ slackToken, slackUserToken, claudeApiKey, groqApiKey, provider = 'groq', lookbackHours = 6 }) {
   const steps = []
-  if (!slackToken) return [{ ok: false, label: 'Slack token', detail: 'No token entered' }]
+  const activeToken = slackUserToken || slackToken
+  if (!activeToken) return [{ ok: false, label: 'Slack token', detail: 'No token entered' }]
 
-  const slack = new WebClient(slackToken)
+  const tokenType = slackUserToken ? 'User token (xoxp)' : 'Bot token (xoxb)'
+  const slack = new WebClient(activeToken)
 
   // Step 1: auth
   let userId
   try {
     const auth = await slack.auth.test()
     userId = auth.user_id
-    steps.push({ ok: true, label: 'Slack auth', detail: `Connected as @${auth.user} (${auth.team})` })
+    steps.push({ ok: true, label: 'Slack auth', detail: `Connected as @${auth.user} (${auth.team}) · ${tokenType}` })
   } catch (err) {
     steps.push({ ok: false, label: 'Slack auth', detail: err.message })
     return steps
@@ -95,14 +97,16 @@ export async function diagnoseSlack({ slackToken, claudeApiKey, groqApiKey, prov
 }
 
 export async function syncSlack({
-  slackToken, claudeApiKey, groqApiKey, provider = 'claude',
+  slackToken, slackUserToken, claudeApiKey, groqApiKey, provider = 'claude',
   processedIds = [], lookbackHours = 6,
 }) {
-  if (!slackToken) return { todos: [], processedIds, error: 'Missing Slack token' }
+  // Prefer user token — it reads the user's own channels/DMs
+  const activeToken = slackUserToken || slackToken
+  if (!activeToken) return { todos: [], processedIds, error: 'Missing Slack token' }
   if (provider === 'groq' && !groqApiKey)    return { todos: [], processedIds, error: 'Missing Groq API key' }
   if (provider === 'claude' && !claudeApiKey) return { todos: [], processedIds, error: 'Missing Claude API key' }
 
-  const slack = new WebClient(slackToken)
+  const slack = new WebClient(activeToken)
 
   try {
     const auth   = await slack.auth.test()

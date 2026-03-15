@@ -32,6 +32,7 @@ function saveTodos(todos) {
 // ── Settings ──────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
   slackToken: '',
+  slackUserToken: '',
   claudeApiKey: '',
   groqApiKey: '',
   llmProvider: 'groq',       // 'claude' | 'groq'
@@ -62,12 +63,13 @@ async function runSync() {
   if (!settings.slackToken || !settings.claudeApiKey) return
 
   const result = await syncSlack({
-    slackToken:    settings.slackToken,
-    claudeApiKey:  settings.claudeApiKey,
-    groqApiKey:    settings.groqApiKey,
-    provider:      settings.llmProvider,
-    processedIds:  settings.processedIds,
-    lookbackHours: settings.lookbackHours,
+    slackToken:     settings.slackToken,
+    slackUserToken: settings.slackUserToken,
+    claudeApiKey:   settings.claudeApiKey,
+    groqApiKey:     settings.groqApiKey,
+    provider:       settings.llmProvider,
+    processedIds:   settings.processedIds,
+    lookbackHours:  settings.lookbackHours,
   })
 
   if (result.todos.length > 0) {
@@ -153,6 +155,7 @@ function createWindow() {
     // Return everything except processedIds (too large for IPC)
     return {
       slackToken:          s.slackToken,
+      slackUserToken:      s.slackUserToken,
       claudeApiKey:        s.claudeApiKey,
       groqApiKey:          s.groqApiKey,
       llmProvider:         s.llmProvider,
@@ -187,11 +190,12 @@ function createWindow() {
   ipcMain.handle('slack:diagnose', async () => {
     const s = loadSettings()
     return diagnoseSlack({
-      slackToken:   s.slackToken,
-      claudeApiKey: s.claudeApiKey,
-      groqApiKey:   s.groqApiKey,
-      provider:     s.llmProvider,
-      lookbackHours: s.lookbackHours,
+      slackToken:     s.slackToken,
+      slackUserToken: s.slackUserToken,
+      claudeApiKey:   s.claudeApiKey,
+      groqApiKey:     s.groqApiKey,
+      provider:       s.llmProvider,
+      lookbackHours:  s.lookbackHours,
     })
   })
 }

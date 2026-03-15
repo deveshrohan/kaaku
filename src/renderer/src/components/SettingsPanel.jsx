@@ -16,8 +16,8 @@ const LOOKBACKS = [
 
 export default function SettingsPanel({ onClose }) {
   const [cfg, setCfg] = useState({
-    slackToken: '', claudeApiKey: '', groqApiKey: '',
-    llmProvider: 'groq', syncIntervalMinutes: 30, lookbackHours: 6,
+    slackToken: '', slackUserToken: '', claudeApiKey: '', groqApiKey: '',
+    llmProvider: 'groq', syncIntervalMinutes: 30, lookbackHours: 24,
     lastSyncedAt: null, lastSyncError: null, lastSyncAdded: 0,
   })
   const [syncing,    setSyncing]    = useState(false)
@@ -25,6 +25,7 @@ export default function SettingsPanel({ onClose }) {
   const [diagSteps,  setDiagSteps]  = useState(null)
   const [diagnosing, setDiagnosing] = useState(false)
   const [showSlack,  setShowSlack]  = useState(false)
+  const [showUser,   setShowUser]   = useState(false)
   const [showKey,    setShowKey]    = useState(false)
   const [dirty,      setDirty]      = useState(false)
 
@@ -40,6 +41,7 @@ export default function SettingsPanel({ onClose }) {
   async function save() {
     await window.wallE?.saveSettings({
       slackToken:          cfg.slackToken,
+      slackUserToken:      cfg.slackUserToken,
       claudeApiKey:        cfg.claudeApiKey,
       groqApiKey:          cfg.groqApiKey,
       llmProvider:         cfg.llmProvider,
@@ -90,7 +92,7 @@ export default function SettingsPanel({ onClose }) {
   const setKey   = val => set(isGroq ? 'groqApiKey' : 'claudeApiKey', val)
   const keyPlaceholder = isGroq ? 'gsk_…' : 'sk-ant-…'
 
-  const canSync = !syncing && cfg.slackToken && apiKey
+  const canSync = !syncing && (cfg.slackUserToken || cfg.slackToken) && apiKey
 
   const lastSyncText = cfg.lastSyncedAt
     ? `Last synced ${Math.round((Date.now() - cfg.lastSyncedAt) / 60000)}m ago`
@@ -130,9 +132,29 @@ export default function SettingsPanel({ onClose }) {
           </div>
         </div>
 
-        {/* Slack token */}
+        {/* User token — reads the user's own Slack messages */}
         <div className="settings-field">
-          <label className="settings-label">Slack Bot Token</label>
+          <label className="settings-label">
+            Slack User Token <span className="settings-label-rec">★ recommended</span>
+          </label>
+          <div className="settings-input-wrap">
+            <input
+              type={showUser ? 'text' : 'password'}
+              className="settings-input"
+              placeholder="xoxp-… (reads your own messages)"
+              value={cfg.slackUserToken}
+              onChange={e => set('slackUserToken', e.target.value)}
+              spellCheck={false}
+            />
+            <button className="peek-btn" onClick={() => setShowUser(v => !v)}>
+              {showUser ? '🙈' : '👁'}
+            </button>
+          </div>
+        </div>
+
+        {/* Bot token — fallback, only reads channels bot is invited to */}
+        <div className="settings-field">
+          <label className="settings-label">Slack Bot Token <span style={{opacity:0.5}}>(fallback)</span></label>
           <div className="settings-input-wrap">
             <input
               type={showSlack ? 'text' : 'password'}
