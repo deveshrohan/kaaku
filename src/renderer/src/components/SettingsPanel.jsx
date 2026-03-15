@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 
 const INTERVALS = [
-  { label: '15 min', value: 15 },
-  { label: '30 min', value: 30 },
-  { label: '1 hour', value: 60 },
+  { label: '15 min', value: 15  },
+  { label: '30 min', value: 30  },
+  { label: '1 hour', value: 60  },
   { label: '4 hours', value: 240 },
 ]
 const LOOKBACKS = [
@@ -16,15 +16,15 @@ const LOOKBACKS = [
 
 export default function SettingsPanel({ onClose }) {
   const [cfg, setCfg] = useState({
-    slackToken: '', claudeApiKey: '',
-    syncIntervalMinutes: 30, lookbackHours: 6,
+    slackToken: '', claudeApiKey: '', groqApiKey: '',
+    llmProvider: 'groq', syncIntervalMinutes: 30, lookbackHours: 6,
     lastSyncedAt: null, lastSyncError: null, lastSyncAdded: 0,
   })
-  const [syncing, setSyncing]     = useState(false)
-  const [status,  setStatus]      = useState('')
+  const [syncing,    setSyncing]    = useState(false)
+  const [status,     setStatus]     = useState('')
   const [showSlack,  setShowSlack]  = useState(false)
-  const [showClaude, setShowClaude] = useState(false)
-  const [dirty,   setDirty]       = useState(false)
+  const [showKey,    setShowKey]    = useState(false)
+  const [dirty,      setDirty]      = useState(false)
 
   useEffect(() => {
     window.wallE?.loadSettings().then(s => { if (s) setCfg(s) })
@@ -37,10 +37,12 @@ export default function SettingsPanel({ onClose }) {
 
   async function save() {
     await window.wallE?.saveSettings({
-      slackToken: cfg.slackToken,
-      claudeApiKey: cfg.claudeApiKey,
+      slackToken:          cfg.slackToken,
+      claudeApiKey:        cfg.claudeApiKey,
+      groqApiKey:          cfg.groqApiKey,
+      llmProvider:         cfg.llmProvider,
       syncIntervalMinutes: cfg.syncIntervalMinutes,
-      lookbackHours: cfg.lookbackHours,
+      lookbackHours:       cfg.lookbackHours,
     })
     setDirty(false)
     flash('Saved ✓')
@@ -58,14 +60,19 @@ export default function SettingsPanel({ onClose }) {
 
   function flash(msg) {
     setStatus(msg)
-    setTimeout(() => setStatus(''), 3000)
+    setTimeout(() => setStatus(''), 3500)
   }
+
+  const isGroq   = cfg.llmProvider === 'groq'
+  const apiKey   = isGroq ? cfg.groqApiKey   : cfg.claudeApiKey
+  const setKey   = val => set(isGroq ? 'groqApiKey' : 'claudeApiKey', val)
+  const keyPlaceholder = isGroq ? 'gsk_…' : 'sk-ant-…'
+
+  const canSync = !syncing && cfg.slackToken && apiKey
 
   const lastSyncText = cfg.lastSyncedAt
     ? `Last synced ${Math.round((Date.now() - cfg.lastSyncedAt) / 60000)}m ago`
     : 'Never synced'
-
-  const canSync = !syncing && cfg.slackToken && cfg.claudeApiKey
 
   return (
     <motion.div
@@ -81,6 +88,27 @@ export default function SettingsPanel({ onClose }) {
       </div>
 
       <div className="settings-body">
+
+        {/* LLM provider toggle */}
+        <div className="settings-field">
+          <label className="settings-label">AI Provider</label>
+          <div className="provider-toggle">
+            <button
+              className={`provider-btn ${!isGroq ? 'active' : ''}`}
+              onClick={() => set('llmProvider', 'claude')}
+            >
+              Claude
+            </button>
+            <button
+              className={`provider-btn ${isGroq ? 'active' : ''}`}
+              onClick={() => set('llmProvider', 'groq')}
+            >
+              Groq
+            </button>
+          </div>
+        </div>
+
+        {/* Slack token */}
         <div className="settings-field">
           <label className="settings-label">Slack Bot Token</label>
           <div className="settings-input-wrap">
@@ -98,23 +126,25 @@ export default function SettingsPanel({ onClose }) {
           </div>
         </div>
 
+        {/* Dynamic API key field */}
         <div className="settings-field">
-          <label className="settings-label">Claude API Key</label>
+          <label className="settings-label">{isGroq ? 'Groq' : 'Claude'} API Key</label>
           <div className="settings-input-wrap">
             <input
-              type={showClaude ? 'text' : 'password'}
+              type={showKey ? 'text' : 'password'}
               className="settings-input"
-              placeholder="sk-ant-…"
-              value={cfg.claudeApiKey}
-              onChange={e => set('claudeApiKey', e.target.value)}
+              placeholder={keyPlaceholder}
+              value={apiKey}
+              onChange={e => setKey(e.target.value)}
               spellCheck={false}
             />
-            <button className="peek-btn" onClick={() => setShowClaude(v => !v)}>
-              {showClaude ? '🙈' : '👁'}
+            <button className="peek-btn" onClick={() => setShowKey(v => !v)}>
+              {showKey ? '🙈' : '👁'}
             </button>
           </div>
         </div>
 
+        {/* Sync interval + lookback */}
         <div className="settings-row">
           <div className="settings-field half">
             <label className="settings-label">Sync every</label>
@@ -138,10 +168,9 @@ export default function SettingsPanel({ onClose }) {
           </div>
         </div>
 
+        {/* Actions */}
         <div className="settings-actions">
-          {dirty && (
-            <button className="settings-save-btn" onClick={save}>Save</button>
-          )}
+          {dirty && <button className="settings-save-btn" onClick={save}>Save</button>}
           <button className="settings-sync-btn" onClick={syncNow} disabled={!canSync}>
             {syncing ? '…' : '⟳'} Sync Now
           </button>
@@ -151,6 +180,7 @@ export default function SettingsPanel({ onClose }) {
           ? <div className="settings-status">{status}</div>
           : <div className="settings-status muted">{lastSyncText}</div>
         }
+
       </div>
     </motion.div>
   )

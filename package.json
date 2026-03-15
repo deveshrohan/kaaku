@@ -50,6 +50,7 @@
     "@slack/web-api": "^7.15.0",
     "electron-auto-launch": "^5.0.7",
     "framer-motion": "^11.0.0",
+    "openai": "^6.29.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "three": "^0.162.0"

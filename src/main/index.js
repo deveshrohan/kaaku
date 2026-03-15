@@ -33,6 +33,8 @@ function saveTodos(todos) {
 const DEFAULT_SETTINGS = {
   slackToken: '',
   claudeApiKey: '',
+  groqApiKey: '',
+  llmProvider: 'groq',       // 'claude' | 'groq'
   syncIntervalMinutes: 30,
   lookbackHours: 6,
   processedIds: [],
@@ -60,9 +62,11 @@ async function runSync() {
   if (!settings.slackToken || !settings.claudeApiKey) return
 
   const result = await syncSlack({
-    slackToken: settings.slackToken,
-    claudeApiKey: settings.claudeApiKey,
-    processedIds: settings.processedIds,
+    slackToken:    settings.slackToken,
+    claudeApiKey:  settings.claudeApiKey,
+    groqApiKey:    settings.groqApiKey,
+    provider:      settings.llmProvider,
+    processedIds:  settings.processedIds,
     lookbackHours: settings.lookbackHours,
   })
 
@@ -148,13 +152,15 @@ function createWindow() {
     const s = loadSettings()
     // Return everything except processedIds (too large for IPC)
     return {
-      slackToken: s.slackToken,
-      claudeApiKey: s.claudeApiKey,
+      slackToken:          s.slackToken,
+      claudeApiKey:        s.claudeApiKey,
+      groqApiKey:          s.groqApiKey,
+      llmProvider:         s.llmProvider,
       syncIntervalMinutes: s.syncIntervalMinutes,
-      lookbackHours: s.lookbackHours,
-      lastSyncedAt: s.lastSyncedAt,
-      lastSyncError: s.lastSyncError,
-      lastSyncAdded: s.lastSyncAdded,
+      lookbackHours:       s.lookbackHours,
+      lastSyncedAt:        s.lastSyncedAt,
+      lastSyncError:       s.lastSyncError,
+      lastSyncAdded:       s.lastSyncAdded,
     }
   })
 

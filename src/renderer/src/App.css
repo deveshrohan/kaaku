@@ -322,6 +322,20 @@ body {
   font-size: 9px; color: rgba(255,255,255,0.45); text-align: center; min-height: 12px;
 }
 .settings-status.muted { color: rgba(255,255,255,0.22); }
+.provider-toggle {
+  display: flex; gap: 0; border-radius: 7px; overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.provider-btn {
+  flex: 1; background: rgba(255,255,255,0.04); border: none;
+  color: rgba(255,255,255,0.38); font-size: 10px; font-weight: 600;
+  padding: 5px 0; cursor: pointer; transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+.provider-btn:first-child { border-right: 1px solid rgba(255,255,255,0.08); }
+.provider-btn.active {
+  background: rgba(200,164,74,0.18); color: #C8A44A;
+}
 
 /* ── Celebration ───────────────────────────────────────────────── */
 .celebration-overlay {
