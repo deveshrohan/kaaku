@@ -36,7 +36,7 @@ const DEFAULT_SETTINGS = {
   groqApiKey: '',
   llmProvider: 'groq',       // 'claude' | 'groq'
   syncIntervalMinutes: 30,
-  lookbackHours: 6,
+  lookbackHours: 24,
   processedIds: [],
   lastSyncedAt: null,
   lastSyncError: null,
@@ -176,6 +176,12 @@ function createWindow() {
     await runSync()
     const s = loadSettings()
     return { added: s.lastSyncAdded, error: s.lastSyncError }
+  })
+
+  ipcMain.handle('slack:clear-processed', () => {
+    const s = loadSettings()
+    saveSettings({ ...s, processedIds: [] })
+    return true
   })
 
   ipcMain.handle('slack:diagnose', async () => {

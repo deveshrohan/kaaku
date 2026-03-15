@@ -163,6 +163,7 @@ export default function App() {
     if (drag.current.moved || canvasDrag.current.moved) return
     setAnimState('click')
     setTimeout(() => setAnimState('idle'), 1200)
+    if (showSettings) return   // don't collapse panel while settings is open
     if (showTodo) closePanel()
     else          openPanel()
   }

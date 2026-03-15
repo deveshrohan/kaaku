@@ -133,8 +133,6 @@ export async function syncSlack({
       cursor = res.response_metadata?.next_cursor
     } while (cursor)
 
-    for (const msg of messages) processedSet.add(msg.key)
-
     if (messages.length === 0) {
       return { todos: [], processedIds: [...processedSet].slice(-2000) }
     }
@@ -148,6 +146,7 @@ export async function syncSlack({
 
     let actionables = []
     try { actionables = JSON.parse(raw) } catch {
+      // Don't mark as processed — let them be re-evaluated next sync
       return { todos: [], processedIds: [...processedSet].slice(-2000) }
     }
 
@@ -155,6 +154,8 @@ export async function syncSlack({
     for (const a of actionables) {
       const msg = messages[a.idx]
       if (!msg) continue
+      // Only mark messages that produced a todo as processed (avoid re-adding same task)
+      processedSet.add(msg.key)
       todos.push({
         id: Date.now() + Math.random(),
         text: a.text,
@@ -163,6 +164,14 @@ export async function syncSlack({
         source: 'slack',
         slackChannel: msg.channel,
       })
+    }
+
+    // Mark non-actionable messages as processed too — but only messages older than 1h
+    // to avoid silently ignoring very recent messages that might need another pass
+    const oneHourAgo = (Date.now() / 1000) - 3600
+    for (const msg of messages) {
+      const ts = parseFloat(msg.key.split(':')[1] || '0')
+      if (ts < oneHourAgo) processedSet.add(msg.key)
     }
 
     return { todos, processedIds: [...processedSet].slice(-2000) }

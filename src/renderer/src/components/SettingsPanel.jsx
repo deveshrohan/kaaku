@@ -60,6 +60,17 @@ export default function SettingsPanel({ onClose }) {
     else flash(result?.added ? `✓ ${result.added} task${result.added !== 1 ? 's' : ''} added` : '✓ Nothing new')
   }
 
+  async function clearAndResync() {
+    if (dirty) await save()
+    await window.wallE?.clearProcessedIds()
+    setSyncing(true)
+    setStatus('Full resync…')
+    const result = await window.wallE?.syncSlack()
+    setSyncing(false)
+    if (result?.error) flash(`Error: ${result.error.slice(0, 55)}`)
+    else flash(result?.added ? `✓ ${result.added} task${result.added !== 1 ? 's' : ''} added` : '✓ Nothing new')
+  }
+
   function flash(msg) {
     setStatus(msg)
     setTimeout(() => setStatus(''), 3500)
@@ -182,11 +193,14 @@ export default function SettingsPanel({ onClose }) {
         {/* Actions */}
         <div className="settings-actions">
           {dirty && <button className="settings-save-btn" onClick={save}>Save</button>}
-          <button className="settings-diag-btn" onClick={diagnose} disabled={diagnosing || !cfg.slackToken}>
+          <button className="settings-diag-btn" onClick={diagnose} disabled={diagnosing || !cfg.slackToken} title="Test connection">
             {diagnosing ? '…' : '🔍'}
           </button>
           <button className="settings-sync-btn" onClick={syncNow} disabled={!canSync}>
-            {syncing ? '…' : '⟳'} Sync Now
+            {syncing ? '…' : '⟳'} Sync
+          </button>
+          <button className="settings-sync-btn" onClick={clearAndResync} disabled={!canSync} title="Clear history and rescan all messages">
+            ↺ Full
           </button>
         </div>
 

@@ -8,7 +8,8 @@ contextBridge.exposeInMainWorld('wallE', {
   loadSettings:  ()      => ipcRenderer.invoke('settings:load'),
   saveSettings:  (cfg)   => ipcRenderer.invoke('settings:save', cfg),
   syncSlack:     ()      => ipcRenderer.invoke('slack:sync'),
-  diagnoseSlack: ()      => ipcRenderer.invoke('slack:diagnose'),
+  diagnoseSlack:    ()   => ipcRenderer.invoke('slack:diagnose'),
+  clearProcessedIds: ()  => ipcRenderer.invoke('slack:clear-processed'),
   onTodosPushed: (cb)    => {
     const handler = (_, todos) => cb(todos)
     ipcRenderer.on('todos:pushed', handler)
