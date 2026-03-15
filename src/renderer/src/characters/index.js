@@ -1,0 +1,10 @@
+// Character registry — used by App.jsx for the selector and "All" cycling
+export { default as WallE,   meta as walleMeta   } from './WallE'
+export { default as Pikachu, meta as pikachuMeta } from './Pikachu'
+export { default as Buzz,    meta as buzzMeta    } from './Buzz'
+export { default as Doug,    meta as dougMeta    } from './Doug'
+export { default as Raccoon, meta as raccoonMeta } from './Raccoon'
+export { default as Frozone, meta as frozonemeta } from './Frozone'
+export { default as Chopper, meta as chopperMeta } from './Chopper'
+export { default as Luffy,   meta as luffyMeta   } from './Luffy'
+export { default as Zoro,    meta as zoroMeta    } from './Zoro'

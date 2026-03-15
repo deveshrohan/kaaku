@@ -1,0 +1,48 @@
+{
+  "name": "kaaku",
+  "version": "1.0.0",
+  "description": "Kaaku — a 3D animated desktop buddy and personal assistant built with Electron, React Three Fiber and GLB characters",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "dist": "electron-vite build && electron-builder"
+  },
+  "build": {
+    "appId": "com.deveshrohan.kaaku",
+    "productName": "Kaaku",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
+      "category": "public.app-category.utilities",
+      "icon": "build/icon.icns"
+    },
+    "dmg": {
+      "title": "Kaaku",
+      "background": "build/dmg-background.png",
+      "window": { "width": 540, "height": 380 }
+    }
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.99.0",
+    "@react-three/fiber": "^8.15.0",
+    "electron-auto-launch": "^5.0.7",
+    "framer-motion": "^11.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "three": "^0.162.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.0",
+    "electron": "^29.1.0",
+    "electron-builder": "^26.8.1",
+    "electron-vite": "^2.1.0",
+    "vite": "^5.1.0"
+  }
+}
