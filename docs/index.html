@@ -53,9 +53,9 @@
 
     /* ── Hero ── */
     .hero {
-      min-height: 100vh;
+      height: 100vh;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
-      text-align: center; padding: 100px 24px 80px;
+      text-align: center; padding: 72px 24px 40px;
       position: relative; overflow: hidden;
     }
     .hero::before {
@@ -69,27 +69,17 @@
     /* model-viewer in hero */
     .hero-model-wrap {
       position: relative; flex-shrink: 0;
-      border-radius: 20px; overflow: hidden;
-      box-shadow: 0 40px 100px rgba(0,0,0,0.7), 0 0 80px rgba(200,164,74,0.14);
-      background: rgba(18,18,22,0.9);
-      border: 1px solid rgba(255,255,255,0.09);
-      margin-bottom: 48px;
-    }
-    .hero-model-wrap::after {
-      content: ''; position: absolute; inset: 0; border-radius: 20px;
-      background: linear-gradient(160deg, rgba(200,164,74,0.14) 0%, transparent 55%);
-      pointer-events: none;
+      margin-bottom: 24px;
     }
     model-viewer {
       --poster-color: transparent;
       --progress-bar-color: rgba(200,164,74,0.8);
-      width: 260px; height: 340px;
+      width: 182px; height: 238px;
       display: block; background: transparent;
     }
     .hero-model-hint {
-      position: absolute; bottom: 10px; left: 0; right: 0;
-      text-align: center; font-size: 10px; color: rgba(255,255,255,0.3);
-      pointer-events: none; letter-spacing: 0.04em;
+      text-align: center; font-size: 10px; color: rgba(255,255,255,0.28);
+      letter-spacing: 0.04em; margin-top: 4px;
     }
 
     .hero-badge {
@@ -97,29 +87,29 @@
       background: rgba(200,164,74,0.1); border: 1px solid rgba(200,164,74,0.25);
       color: var(--gold); font-size: 12px; font-weight: 600;
       padding: 5px 12px; border-radius: 100px; letter-spacing: 0.06em;
-      text-transform: uppercase; margin-bottom: 24px;
+      text-transform: uppercase; margin-bottom: 16px;
     }
     .hero h1 {
-      font-size: clamp(52px, 8vw, 96px);
+      font-size: clamp(42px, 7vw, 80px);
       font-weight: 800; letter-spacing: -0.04em; line-height: 1;
-      margin-bottom: 20px;
+      margin-bottom: 14px;
     }
     .hero h1 span { color: var(--gold); }
     .hero-sub {
-      font-size: clamp(16px, 2vw, 20px); color: var(--muted);
-      max-width: 520px; line-height: 1.6; margin-bottom: 40px;
+      font-size: clamp(14px, 1.8vw, 17px); color: var(--muted);
+      max-width: 440px; line-height: 1.5; margin-bottom: 28px;
     }
     .hero-actions { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
     .btn-primary {
       background: var(--gold); color: #1a0f00;
-      font-size: 15px; font-weight: 700; padding: 14px 28px;
+      font-size: 14px; font-weight: 700; padding: 12px 24px;
       border-radius: 10px; text-decoration: none;
       transition: background 0.2s, transform 0.15s;
     }
     .btn-primary:hover { background: var(--gold-light); transform: translateY(-1px); }
     .btn-secondary {
       background: var(--surface); color: var(--text);
-      font-size: 15px; font-weight: 500; padding: 14px 28px;
+      font-size: 14px; font-weight: 500; padding: 12px 24px;
       border-radius: 10px; text-decoration: none; border: 1px solid var(--border);
       transition: border-color 0.2s, transform 0.15s;
     }
@@ -249,8 +239,8 @@
     <div class="hero-badge">✦ macOS · Open Source</div>
     <h1>Meet <span>Kaaku.</span></h1>
     <p class="hero-sub">
-      A 3D animated desktop buddy that lives on your screen, keeps your todos,
-      and reacts to everything you do — built for the future of personal AI.
+      Your 3D desktop buddy — always on screen, always on top.
+      Keeps your todos, reacts when you complete them.
     </p>
     <div class="hero-actions">
       <a href="https://github.com/deveshrohan/kaaku/releases" class="btn-primary">Download for macOS ↓</a>
