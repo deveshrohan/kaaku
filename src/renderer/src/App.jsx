@@ -4,6 +4,7 @@ import { useFrame } from '@react-three/fiber'
 import { AnimatePresence, motion } from 'framer-motion'
 import TodoPanel from './components/TodoPanel'
 import SettingsPanel from './components/SettingsPanel'
+import NotificationBubble from './components/NotificationBubble'
 
 // ── Manual rotation group (drag-to-rotate) ───────────────────────
 function RotationGroup({ manualRotRef, children }) {
@@ -51,10 +52,12 @@ function CharacterRenderer({ charId, animState, onAnimComplete }) {
 
 // ── App ──────────────────────────────────────────────────────────
 export default function App() {
-  const [todos, setTodos]                     = useState([])
-  const [showTodo, setShowTodo]               = useState(false)
-  const [showSettings, setShowSettings]       = useState(false)
-  const [animState, setAnimState] = useState('idle')
+  const [todos, setTodos]               = useState([])
+  const [showTodo, setShowTodo]         = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [animState, setAnimState]       = useState('idle')
+  const [notifQueue, setNotifQueue]     = useState([])   // pending bubbles
+  const currentNotif = notifQueue[0] ?? null
 
   // ── assistant name ───────────────────────────────────────────
   const [assistantName, setAssistantName] = useState(
@@ -104,22 +107,49 @@ export default function App() {
   }, [showTodo])
 
   // ── persistence ──────────────────────────────────────────────
+  const todosLoaded = useRef(false)
   useEffect(() => {
-    window.wallE?.loadTodos().then(d => { if (Array.isArray(d)) setTodos(d) })
+    window.wallE?.loadTodos().then(d => {
+      if (Array.isArray(d)) setTodos(d)
+      todosLoaded.current = true
+    })
   }, [])
-  useEffect(() => { window.wallE?.saveTodos(todos) }, [todos])
+  useEffect(() => {
+    if (todosLoaded.current) window.wallE?.saveTodos(todos)
+  }, [todos])
 
-  // ── Slack push: new todos from main process ───────────────────
+  // ── Slack / system push: new todos from main process ─────────
   useEffect(() => {
     const cleanup = window.wallE?.onTodosPushed(newTodos => {
       setTodos(prev => [...prev, ...newTodos])
+      // Queue each new item as a bubble notification
+      setNotifQueue(prev => [...prev, ...newTodos])
     })
     return cleanup
   }, [])
 
+  // ── notification bubble ───────────────────────────────────────
+  function dismissNotif() {
+    // Remove permission requests from the todo list — they're transient, not tasks
+    if (currentNotif?.requiresResponse) {
+      setTodos(prev => prev.filter(t => t.id !== currentNotif.id))
+    }
+    setNotifQueue(prev => prev.slice(1))
+    if (!showTodo) window.wallE?.setBubbleOpen(false)
+  }
+  function openFromNotif() {
+    setNotifQueue(prev => prev.slice(1))
+    openPanel()
+  }
+
+  // Tell main process to resize for bubble when one appears / disappears
+  useEffect(() => {
+    if (!showTodo) window.wallE?.setBubbleOpen(!!currentNotif)
+  }, [currentNotif?.id, showTodo])
+
   // ── panel ────────────────────────────────────────────────────
   function openPanel()  { setShowTodo(true);  window.wallE?.setPanelOpen(true)  }
-  function closePanel() { setShowTodo(false); window.wallE?.setPanelOpen(false) }
+  function closePanel() { setShowTodo(false); setShowSettings(false); window.wallE?.setPanelOpen(false) }
 
   // ── character interactions ───────────────────────────────────
   const specialIdxRef = useRef(0)
@@ -265,6 +295,18 @@ export default function App() {
               )}
             </AnimatePresence>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Notification bubble (compact mode only) ─────────── */}
+      <AnimatePresence>
+        {!showTodo && currentNotif && (
+          <NotificationBubble
+            key={currentNotif.id}
+            notification={currentNotif}
+            onDismiss={dismissNotif}
+            onOpen={openFromNotif}
+          />
         )}
       </AnimatePresence>
 

@@ -49,10 +49,11 @@ export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, on
   }
 
   // Sort pending by priority: high → medium → low → no priority
+  // Exclude transient permission requests (requiresResponse) — they belong in the bubble only
   const pending = todos
-    .filter(t => !t.done)
+    .filter(t => !t.done && !t.requiresResponse)
     .sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 3) - (PRIORITY_ORDER[b.priority] ?? 3))
-  const done = todos.filter(t => t.done)
+  const done = todos.filter(t => t.done && !t.requiresResponse)
 
   return (
     <motion.div
