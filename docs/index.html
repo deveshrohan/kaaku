@@ -4,9 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Kaaku — Your 3D Desktop Buddy</title>
-  <meta name="description" content="Kaaku is a 3D animated desktop companion with a built-in todo list. Powered by Electron, React Three Fiber, and GLB characters." />
+  <meta name="description" content="Kaaku is a 3D animated desktop companion with a built-in todo list, Slack integration, and Claude Code permission controls. Powered by Electron, React Three Fiber, and GLB characters." />
   <meta property="og:title" content="Kaaku — Your 3D Desktop Buddy" />
-  <meta property="og:description" content="A 3D animated desktop companion with a built-in todo list. macOS only." />
+  <meta property="og:description" content="A 3D animated desktop companion with smart notifications, Slack sync, and Claude Code integration. macOS only." />
   <meta property="og:url" content="https://deveshrohan.github.io/kaaku" />
   <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
   <style>
@@ -20,6 +20,9 @@
       --gold-light: #e8c870;
       --text: rgba(255,255,255,0.88);
       --muted: rgba(255,255,255,0.42);
+      --blue: #80c8ff;
+      --green: #32D74B;
+      --red: #FF453A;
     }
 
     html { scroll-behavior: smooth; }
@@ -97,7 +100,7 @@
     .hero h1 span { color: var(--gold); }
     .hero-sub {
       font-size: clamp(14px, 1.8vw, 17px); color: var(--muted);
-      max-width: 440px; line-height: 1.5; margin-bottom: 28px;
+      max-width: 480px; line-height: 1.5; margin-bottom: 28px;
     }
     .hero-actions { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
     .btn-primary {
@@ -134,9 +137,51 @@
       transition: border-color 0.2s, transform 0.2s;
     }
     .feature-card:hover { border-color: rgba(200,164,74,0.3); transform: translateY(-2px); }
+    .feature-card.highlight { border-color: rgba(200,164,74,0.2); background: rgba(200,164,74,0.04); }
     .feature-icon { font-size: 28px; margin-bottom: 14px; }
     .feature-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
     .feature-desc { font-size: 14px; color: var(--muted); line-height: 1.6; }
+    .feature-new {
+      display: inline-block; font-size: 9px; font-weight: 700;
+      color: var(--gold); background: rgba(200,164,74,0.15);
+      border: 1px solid rgba(200,164,74,0.3);
+      padding: 2px 7px; border-radius: 100px; letter-spacing: 0.08em;
+      text-transform: uppercase; vertical-align: middle; margin-left: 6px;
+    }
+
+    /* ── Notification demo ── */
+    .notif-demo {
+      padding: 80px 24px; max-width: 1100px; margin: 0 auto;
+    }
+    .notif-demo-inner {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 48px; display: flex;
+      gap: 48px; align-items: center; flex-wrap: wrap;
+    }
+    .notif-demo-text { flex: 1; min-width: 260px; }
+    .notif-demo-text p { color: var(--muted); font-size: 15px; line-height: 1.7; margin-top: 16px; }
+    .notif-mockups { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 12px; }
+    .notif-mock {
+      background: #18181c; border-radius: 14px; padding: 14px 16px;
+      display: flex; gap: 12px; align-items: flex-start;
+      border: 1px solid rgba(255,255,255,0.06);
+      position: relative; overflow: hidden;
+    }
+    .notif-mock-bar { width: 3px; border-radius: 4px; align-self: stretch; flex-shrink: 0; }
+    .notif-mock-bar.red { background: var(--red); }
+    .notif-mock-bar.green { background: var(--green); }
+    .notif-mock-bar.gold { background: var(--gold); }
+    .notif-mock-content { flex: 1; }
+    .notif-mock-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+    .notif-mock-src { font-size: 11px; font-weight: 600; color: var(--muted); }
+    .notif-mock-text { font-size: 13px; line-height: 1.4; }
+    .notif-mock-actions { display: flex; gap: 8px; margin-top: 10px; }
+    .notif-mock-btn {
+      font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 6px;
+    }
+    .notif-mock-btn.allow { background: rgba(50,215,75,0.15); color: var(--green); }
+    .notif-mock-btn.deny  { background: rgba(255,69,58,0.15);  color: var(--red); }
+    .notif-mock-btn.view  { background: rgba(255,255,255,0.07); color: var(--text); }
 
     /* ── Characters ── */
     .characters { padding: 80px 24px; max-width: 1100px; margin: 0 auto; }
@@ -198,6 +243,7 @@
       .nav-links { gap: 16px; }
       model-viewer { width: 200px; height: 270px; }
       footer { padding: 32px 20px; }
+      .notif-demo-inner { padding: 28px; }
     }
   </style>
 </head>
@@ -207,6 +253,7 @@
     <div class="nav-logo">Kaaku</div>
     <div class="nav-links">
       <a href="#features">Features</a>
+      <a href="#notifications">Notifications</a>
       <a href="#characters">Characters</a>
       <a href="#stack">Stack</a>
       <a href="#roadmap">Roadmap</a>
@@ -240,7 +287,7 @@
     <h1>Meet <span>Kaaku.</span></h1>
     <p class="hero-sub">
       Your 3D desktop buddy — always on screen, always on top.
-      Keeps your todos, reacts when you complete them.
+      Todos, Slack syncs, and Claude Code permissions, all in one place.
     </p>
     <div class="hero-actions">
       <a href="https://github.com/deveshrohan/kaaku/releases" class="btn-primary">Download for macOS ↓</a>
@@ -283,6 +330,21 @@
         <div class="feature-title">Built-in Todo List</div>
         <div class="feature-desc">Click your buddy to pop open a minimal task panel. Mark things done and watch them celebrate with you.</div>
       </div>
+      <div class="feature-card highlight">
+        <div class="feature-icon">🔔</div>
+        <div class="feature-title">Smart Notifications <span class="feature-new">new</span></div>
+        <div class="feature-desc">A floating bubble appears above your character with priority-aware auto-dismiss. High-priority items stay until you act on them.</div>
+      </div>
+      <div class="feature-card highlight">
+        <div class="feature-icon">🤖</div>
+        <div class="feature-title">Claude Code Integration <span class="feature-new">new</span></div>
+        <div class="feature-desc">Claude Code permission requests pop up as bubbles. Allow or Deny directly from Kaaku — no terminal needed. Bidirectional via Unix socket.</div>
+      </div>
+      <div class="feature-card highlight">
+        <div class="feature-icon">💬</div>
+        <div class="feature-title">Slack Sync <span class="feature-new">new</span></div>
+        <div class="feature-desc">Scans all your Slack channels (1000+) for important messages, @mentions, and thread replies. AI classifies tasks, blockers, and deadlines automatically.</div>
+      </div>
       <div class="feature-card">
         <div class="feature-icon">🖱️</div>
         <div class="feature-title">Drag, Rotate, Interact</div>
@@ -293,15 +355,71 @@
         <div class="feature-title">Launches at Login</div>
         <div class="feature-desc">Auto-starts silently when you log in — no dock icon, always floating, always on top of every window.</div>
       </div>
+      <div class="feature-card highlight">
+        <div class="feature-icon">⚡</div>
+        <div class="feature-title">System Event Bus <span class="feature-new">new</span></div>
+        <div class="feature-desc">Unix domain socket at <code style="font-size:12px;color:var(--gold)">/tmp/kaaku.sock</code> lets any tool or script push notifications to Kaaku. One CLI command away.</div>
+      </div>
       <div class="feature-card">
         <div class="feature-icon">🦴</div>
         <div class="feature-title">Skeletal GLB Animations</div>
         <div class="feature-desc">Characters use real rigged GLB models from Blender with smooth skeletal animation blending — not just procedural transforms.</div>
       </div>
-      <div class="feature-card">
-        <div class="feature-icon">🔮</div>
-        <div class="feature-title">Built for What's Next</div>
-        <div class="feature-desc">Kaaku is the foundation for a full personal AI assistant — voice, memory, integrations, and intelligence coming soon.</div>
+    </div>
+  </section>
+
+  <!-- Notification demo -->
+  <section class="notif-demo" id="notifications">
+    <div class="notif-demo-inner">
+      <div class="notif-demo-text">
+        <div class="section-label">// smart bubbles</div>
+        <h2 class="section-title" style="margin-bottom:0">Act without switching context.</h2>
+        <p>Kaaku's notification bubble appears above your character and disappears when you're done. Claude Code permission requests block inline — Allow or Deny without opening a terminal. Slack mentions surface as tasks with AI-assigned priority.</p>
+      </div>
+      <div class="notif-mockups">
+        <!-- Permission request mock -->
+        <div class="notif-mock">
+          <div class="notif-mock-bar red"></div>
+          <div class="notif-mock-content">
+            <div class="notif-mock-header">
+              <span>🤖</span>
+              <span class="notif-mock-src">Claude Code</span>
+            </div>
+            <div class="notif-mock-text">Bash: rm -rf ./node_modules && npm install</div>
+            <div class="notif-mock-actions">
+              <span class="notif-mock-btn allow">✓ Allow</span>
+              <span class="notif-mock-btn deny">✕ Deny</span>
+            </div>
+          </div>
+        </div>
+        <!-- Slack mention mock -->
+        <div class="notif-mock">
+          <div class="notif-mock-bar gold"></div>
+          <div class="notif-mock-content">
+            <div class="notif-mock-header">
+              <span>💬</span>
+              <span class="notif-mock-src">Slack · #engineering</span>
+            </div>
+            <div class="notif-mock-text">@you — can you review the auth PR before end of day?</div>
+            <div class="notif-mock-actions">
+              <span class="notif-mock-btn view">View all</span>
+            </div>
+          </div>
+        </div>
+        <!-- System event mock -->
+        <div class="notif-mock">
+          <div class="notif-mock-bar green"></div>
+          <div class="notif-mock-content">
+            <div class="notif-mock-header">
+              <span>⚡</span>
+              <span class="notif-mock-src">System</span>
+            </div>
+            <div class="notif-mock-text">Deploy to staging succeeded ✓</div>
+            <div class="notif-mock-actions">
+              <span class="notif-mock-btn view">View all</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -335,6 +453,9 @@
       <span class="stack-tag">electron-vite</span>
       <span class="stack-tag">GLB / glTF</span>
       <span class="stack-tag">Blender</span>
+      <span class="stack-tag">Slack Web API</span>
+      <span class="stack-tag">Groq / Claude AI</span>
+      <span class="stack-tag">Unix Sockets</span>
       <span class="stack-tag">electron-builder</span>
       <span class="stack-tag">macOS</span>
     </div>
@@ -358,12 +479,28 @@
         <div class="ri-text"><span class="ri-title done-text">Always-on-top + Launch at Login</span><span class="ri-label shipped">shipped</span></div>
       </li>
       <li>
+        <div class="ri-dot done"></div>
+        <div class="ri-text"><span class="ri-title done-text">Smart Notification Bubbles</span><span class="ri-label shipped">shipped</span></div>
+      </li>
+      <li>
+        <div class="ri-dot done"></div>
+        <div class="ri-text"><span class="ri-title done-text">Claude Code Permission Control</span><span class="ri-label shipped">shipped</span></div>
+      </li>
+      <li>
+        <div class="ri-dot done"></div>
+        <div class="ri-text"><span class="ri-title done-text">Slack Sync with AI Classification</span><span class="ri-label shipped">shipped</span></div>
+      </li>
+      <li>
+        <div class="ri-dot done"></div>
+        <div class="ri-text"><span class="ri-title done-text">Unix Socket System Event Bus</span><span class="ri-label shipped">shipped</span></div>
+      </li>
+      <li>
         <div class="ri-dot next"></div>
         <div class="ri-text"><span class="ri-title">Voice Commands</span><span class="ri-label upcoming">up next</span></div>
       </li>
       <li>
         <div class="ri-dot next"></div>
-        <div class="ri-text"><span class="ri-title">AI-Powered Assistant</span><span class="ri-label upcoming">up next</span></div>
+        <div class="ri-text"><span class="ri-title">Autonomous Task Execution</span><span class="ri-label upcoming">up next</span></div>
       </li>
       <li>
         <div class="ri-dot next"></div>
@@ -371,7 +508,7 @@
       </li>
       <li>
         <div class="ri-dot future"></div>
-        <div class="ri-text"><span class="ri-title">Calendar &amp; Notifications</span></div>
+        <div class="ri-text"><span class="ri-title">Calendar &amp; Reminders</span></div>
       </li>
       <li>
         <div class="ri-dot future"></div>
@@ -385,7 +522,7 @@
   </section>
 
   <footer>
-    <div class="footer-left">Built by <a href="https://deveshrohan.github.io">Devesh Rohan</a> · Kaaku v1.0.0</div>
+    <div class="footer-left">Built by <a href="https://deveshrohan.github.io">Devesh Rohan</a> · Kaaku v2.0.0</div>
     <div style="display:flex;gap:24px;">
       <a href="https://github.com/deveshrohan/kaaku">GitHub</a>
       <a href="https://github.com/deveshrohan/kaaku/releases">Releases</a>
