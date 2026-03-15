@@ -3,6 +3,7 @@ import { Canvas } from '@react-three/fiber'
 import { useFrame } from '@react-three/fiber'
 import { AnimatePresence, motion } from 'framer-motion'
 import TodoPanel from './components/TodoPanel'
+import SettingsPanel from './components/SettingsPanel'
 
 // ── Manual rotation group (drag-to-rotate) ───────────────────────
 function RotationGroup({ manualRotRef, children }) {
@@ -52,6 +53,7 @@ function CharacterRenderer({ charId, animState, onAnimComplete }) {
 export default function App() {
   const [todos, setTodos]                     = useState([])
   const [showTodo, setShowTodo]               = useState(false)
+  const [showSettings, setShowSettings]       = useState(false)
   const [animState, setAnimState] = useState('idle')
 
   // ── assistant name ───────────────────────────────────────────
@@ -106,6 +108,14 @@ export default function App() {
     window.wallE?.loadTodos().then(d => { if (Array.isArray(d)) setTodos(d) })
   }, [])
   useEffect(() => { window.wallE?.saveTodos(todos) }, [todos])
+
+  // ── Slack push: new todos from main process ───────────────────
+  useEffect(() => {
+    const cleanup = window.wallE?.onTodosPushed(newTodos => {
+      setTodos(prev => [...prev, ...newTodos])
+    })
+    return cleanup
+  }, [])
 
   // ── panel ────────────────────────────────────────────────────
   function openPanel()  { setShowTodo(true);  window.wallE?.setPanelOpen(true)  }
@@ -238,13 +248,21 @@ export default function App() {
               )}
             </div>
 
-            <TodoPanel
-              todos={todos}
-              setTodos={setTodos}
-              onTaskComplete={handleTaskComplete}
-              onClose={closePanel}
-              assistantName={assistantName}
-            />
+            <AnimatePresence mode="wait">
+              {showSettings ? (
+                <SettingsPanel key="settings" onClose={() => setShowSettings(false)} />
+              ) : (
+                <TodoPanel
+                  key="todo"
+                  todos={todos}
+                  setTodos={setTodos}
+                  onTaskComplete={handleTaskComplete}
+                  onClose={closePanel}
+                  onOpenSettings={() => setShowSettings(true)}
+                  assistantName={assistantName}
+                />
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>

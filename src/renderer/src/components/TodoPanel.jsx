@@ -1,7 +1,23 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
-export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, assistantName = 'My Assistant' }) {
+const PRIORITY_COLOR = { high: '#FF453A', medium: '#FF9F0A', low: '#32D74B' }
+const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 }
+
+function PriorityBadge({ priority }) {
+  if (!priority) return null
+  return (
+    <span
+      className="priority-badge"
+      style={{ background: PRIORITY_COLOR[priority] }}
+      title={priority}
+    >
+      {priority[0].toUpperCase()}
+    </span>
+  )
+}
+
+export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, onOpenSettings, assistantName = 'My Assistant' }) {
   const [input, setInput] = useState('')
   const inputRef = useRef()
 
@@ -32,8 +48,11 @@ export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, as
     if (e.key === 'Escape') onClose()
   }
 
-  const pending = todos.filter(t => !t.done)
-  const done    = todos.filter(t => t.done)
+  // Sort pending by priority: high → medium → low → no priority
+  const pending = todos
+    .filter(t => !t.done)
+    .sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 3) - (PRIORITY_ORDER[b.priority] ?? 3))
+  const done = todos.filter(t => t.done)
 
   return (
     <motion.div
@@ -46,7 +65,10 @@ export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, as
       {/* Header */}
       <div className="todo-header">
         <span className="todo-title">📋 {assistantName}'s Tasks</span>
-        <button className="close-btn" onClick={onClose}>✕</button>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <button className="settings-gear-btn" onClick={onOpenSettings} title="Slack Integration">⚙</button>
+          <button className="close-btn" onClick={onClose}>✕</button>
+        </div>
       </div>
 
       {/* Input */}
@@ -77,7 +99,11 @@ export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, as
               <button className="check-btn" onClick={() => toggleTodo(todo.id)}>
                 <span className="check-circle" />
               </button>
+              <PriorityBadge priority={todo.priority} />
               <span className="todo-text">{todo.text}</span>
+              {todo.source === 'slack' && (
+                <span className="slack-source-badge" title={`#${todo.slackChannel}`}>#</span>
+              )}
               <button className="delete-btn" onClick={() => deleteTodo(todo.id)}>✕</button>
             </motion.div>
           ))}

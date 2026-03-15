@@ -245,6 +245,84 @@ body {
   padding: 10px 0 3px; color: rgba(255,255,255,0.3); font-size: 11px;
 }
 
+/* ── Priority badge ────────────────────────────────────────────── */
+.priority-badge {
+  font-size: 7px; font-weight: 800; color: #000;
+  width: 13px; height: 13px; border-radius: 3px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; letter-spacing: 0; line-height: 1;
+}
+.slack-source-badge {
+  font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.25);
+  flex-shrink: 0; line-height: 1;
+}
+.settings-gear-btn {
+  background: none; border: none; color: rgba(255,255,255,0.28);
+  font-size: 12px; cursor: pointer; padding: 2px 3px; border-radius: 4px;
+  transition: color 0.15s; flex-shrink: 0; line-height: 1;
+}
+.settings-gear-btn:hover { color: rgba(255,255,255,0.7); }
+
+/* ── Settings panel ─────────────────────────────────────────────── */
+.settings-panel {
+  width: 100%;
+  background: rgba(18,18,20,0.95);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 13px;
+  padding: 11px;
+  display: flex; flex-direction: column; gap: 9px;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.65);
+}
+.settings-body { display: flex; flex-direction: column; gap: 8px; }
+.settings-field { display: flex; flex-direction: column; gap: 3px; }
+.settings-field.half { flex: 1; }
+.settings-label {
+  font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.35);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.settings-input-wrap { display: flex; gap: 4px; }
+.settings-input {
+  flex: 1; background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.08); border-radius: 7px;
+  color: #fff; font-size: 10px; padding: 5px 7px; outline: none;
+  font-family: 'SF Mono', monospace; transition: border-color 0.15s;
+}
+.settings-input:focus { border-color: rgba(200,164,74,0.48); }
+.settings-input::placeholder { color: rgba(255,255,255,0.2); }
+.peek-btn {
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 5px; font-size: 9px; cursor: pointer; padding: 0 5px;
+  color: rgba(255,255,255,0.4); transition: background 0.15s; flex-shrink: 0;
+}
+.peek-btn:hover { background: rgba(255,255,255,0.13); }
+.settings-row { display: flex; gap: 7px; }
+.settings-select {
+  width: 100%; background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.08); border-radius: 7px;
+  color: #fff; font-size: 10px; padding: 5px 6px; outline: none;
+  font-family: inherit; cursor: pointer;
+}
+.settings-actions { display: flex; gap: 6px; }
+.settings-sync-btn {
+  flex: 1; background: rgba(200,164,74,0.12); border: 1px solid rgba(200,164,74,0.28);
+  color: #C8A44A; font-size: 10px; font-weight: 600; padding: 6px 0;
+  border-radius: 7px; cursor: pointer; transition: background 0.15s;
+}
+.settings-sync-btn:hover:not(:disabled) { background: rgba(200,164,74,0.22); }
+.settings-sync-btn:disabled { opacity: 0.38; cursor: default; }
+.settings-save-btn {
+  background: rgba(200,164,74,0.82); border: none; color: #1A1200;
+  font-size: 10px; font-weight: 700; padding: 6px 12px;
+  border-radius: 7px; cursor: pointer; transition: background 0.15s; flex-shrink: 0;
+}
+.settings-save-btn:hover { background: #C8A44A; }
+.settings-status {
+  font-size: 9px; color: rgba(255,255,255,0.45); text-align: center; min-height: 12px;
+}
+.settings-status.muted { color: rgba(255,255,255,0.22); }
+
 /* ── Celebration ───────────────────────────────────────────────── */
 .celebration-overlay {
   position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
