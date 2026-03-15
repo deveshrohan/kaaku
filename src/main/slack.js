@@ -45,6 +45,55 @@ Return ONLY a valid JSON array. If no actionables, return [].`
   return rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
 }
 
+export async function diagnoseSlack({ slackToken, claudeApiKey, groqApiKey, provider = 'groq', lookbackHours = 6 }) {
+  const steps = []
+  if (!slackToken) return [{ ok: false, label: 'Slack token', detail: 'No token entered' }]
+
+  const slack = new WebClient(slackToken)
+
+  // Step 1: auth
+  let userId
+  try {
+    const auth = await slack.auth.test()
+    userId = auth.user_id
+    steps.push({ ok: true, label: 'Slack auth', detail: `Connected as @${auth.user} (${auth.team})` })
+  } catch (err) {
+    steps.push({ ok: false, label: 'Slack auth', detail: err.message })
+    return steps
+  }
+
+  // Step 2: channels
+  let joinedChannels = []
+  try {
+    const res = await slack.conversations.list({
+      types: 'public_channel,private_channel,mpim,im',
+      exclude_archived: true, limit: 100,
+    })
+    joinedChannels = (res.channels || []).filter(c => c.is_member)
+    steps.push({ ok: joinedChannels.length > 0, label: 'Channels accessible', detail: joinedChannels.length > 0 ? `${joinedChannels.length} channel(s): ${joinedChannels.slice(0,5).map(c => '#' + (c.name || c.id)).join(', ')}` : 'Bot is not in any channels — use /invite @YourBotName in Slack' })
+  } catch (err) {
+    steps.push({ ok: false, label: 'Channels accessible', detail: err.message })
+    return steps
+  }
+
+  // Step 3: messages in lookback window
+  const oldest = String((Date.now() / 1000) - lookbackHours * 3600)
+  let totalMsgs = 0
+  for (const ch of joinedChannels.slice(0, 10)) {
+    try {
+      const hist = await slack.conversations.history({ channel: ch.id, oldest, limit: 20 })
+      totalMsgs += (hist.messages || []).filter(m => !m.subtype && !m.bot_id).length
+    } catch {}
+  }
+  steps.push({ ok: totalMsgs > 0, label: `Messages (last ${lookbackHours}h)`, detail: totalMsgs > 0 ? `${totalMsgs} message(s) found` : 'No messages found in lookback window — try increasing "Look back" hours or send a test message' })
+
+  // Step 4: AI key
+  const keyOk = provider === 'groq' ? !!groqApiKey : !!claudeApiKey
+  steps.push({ ok: keyOk, label: `${provider === 'groq' ? 'Groq' : 'Claude'} API key`, detail: keyOk ? 'Key is set' : 'No API key entered' })
+
+  return steps
+}
+
 export async function syncSlack({
   slackToken, claudeApiKey, groqApiKey, provider = 'claude',
   processedIds = [], lookbackHours = 6,

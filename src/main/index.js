@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, screen } from 'electron'
 import { join } from 'path'
 import fs from 'fs'
 import AutoLaunch from 'electron-auto-launch'
-import { syncSlack } from './slack.js'
+import { syncSlack, diagnoseSlack } from './slack.js'
 
 const autoLauncher = new AutoLaunch({ name: 'Kaaku', isHidden: true })
 
@@ -176,6 +176,17 @@ function createWindow() {
     await runSync()
     const s = loadSettings()
     return { added: s.lastSyncAdded, error: s.lastSyncError }
+  })
+
+  ipcMain.handle('slack:diagnose', async () => {
+    const s = loadSettings()
+    return diagnoseSlack({
+      slackToken:   s.slackToken,
+      claudeApiKey: s.claudeApiKey,
+      groqApiKey:   s.groqApiKey,
+      provider:     s.llmProvider,
+      lookbackHours: s.lookbackHours,
+    })
   })
 }
 

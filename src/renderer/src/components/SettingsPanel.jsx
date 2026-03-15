@@ -22,6 +22,8 @@ export default function SettingsPanel({ onClose }) {
   })
   const [syncing,    setSyncing]    = useState(false)
   const [status,     setStatus]     = useState('')
+  const [diagSteps,  setDiagSteps]  = useState(null)
+  const [diagnosing, setDiagnosing] = useState(false)
   const [showSlack,  setShowSlack]  = useState(false)
   const [showKey,    setShowKey]    = useState(false)
   const [dirty,      setDirty]      = useState(false)
@@ -61,6 +63,15 @@ export default function SettingsPanel({ onClose }) {
   function flash(msg) {
     setStatus(msg)
     setTimeout(() => setStatus(''), 3500)
+  }
+
+  async function diagnose() {
+    if (dirty) await save()
+    setDiagnosing(true)
+    setDiagSteps(null)
+    const steps = await window.wallE?.diagnoseSlack()
+    setDiagSteps(steps || [])
+    setDiagnosing(false)
   }
 
   const isGroq   = cfg.llmProvider === 'groq'
@@ -171,15 +182,33 @@ export default function SettingsPanel({ onClose }) {
         {/* Actions */}
         <div className="settings-actions">
           {dirty && <button className="settings-save-btn" onClick={save}>Save</button>}
+          <button className="settings-diag-btn" onClick={diagnose} disabled={diagnosing || !cfg.slackToken}>
+            {diagnosing ? '…' : '🔍'}
+          </button>
           <button className="settings-sync-btn" onClick={syncNow} disabled={!canSync}>
             {syncing ? '…' : '⟳'} Sync Now
           </button>
         </div>
 
-        {status
+        {/* Diagnostic results */}
+        {diagSteps && (
+          <div className="diag-steps">
+            {diagSteps.map((s, i) => (
+              <div key={i} className="diag-step">
+                <span className={`diag-dot ${s.ok ? 'ok' : 'fail'}`}>{s.ok ? '✓' : '✗'}</span>
+                <div className="diag-body">
+                  <span className="diag-label">{s.label}</span>
+                  <span className="diag-detail">{s.detail}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!diagSteps && (status
           ? <div className="settings-status">{status}</div>
           : <div className="settings-status muted">{lastSyncText}</div>
-        }
+        )}
 
       </div>
     </motion.div>

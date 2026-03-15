@@ -322,6 +322,25 @@ body {
   font-size: 9px; color: rgba(255,255,255,0.45); text-align: center; min-height: 12px;
 }
 .settings-status.muted { color: rgba(255,255,255,0.22); }
+.settings-diag-btn {
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.5); font-size: 11px; padding: 6px 9px;
+  border-radius: 7px; cursor: pointer; transition: background 0.15s; flex-shrink: 0;
+}
+.settings-diag-btn:hover:not(:disabled) { background: rgba(255,255,255,0.13); }
+.settings-diag-btn:disabled { opacity: 0.38; cursor: default; }
+.diag-steps { display: flex; flex-direction: column; gap: 5px; }
+.diag-step { display: flex; align-items: flex-start; gap: 7px; }
+.diag-dot {
+  font-size: 9px; font-weight: 700; width: 14px; height: 14px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;
+}
+.diag-dot.ok   { background: rgba(50,215,75,0.18);  color: #32D74B; }
+.diag-dot.fail { background: rgba(255,69,58,0.18);  color: #FF453A; }
+.diag-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.diag-label { font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.7); }
+.diag-detail { font-size: 9px; color: rgba(255,255,255,0.35); line-height: 1.4; word-break: break-word; }
+
 .provider-toggle {
   display: flex; gap: 0; border-radius: 7px; overflow: hidden;
   border: 1px solid rgba(255,255,255,0.08);
