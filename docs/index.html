@@ -197,6 +197,134 @@
       padding: 6px 14px; border-radius: 8px;
     }
 
+    /* ── Hero Visual ── */
+    .hero-visual {
+      margin-top: 64px; display: flex; justify-content: center; align-items: flex-end; gap: 0;
+      position: relative;
+    }
+    .hv-app {
+      width: 148px;
+      background: rgba(18,18,22,0.92);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 18px;
+      box-shadow: 0 32px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.05), 0 0 60px rgba(200,164,74,0.12);
+      overflow: hidden;
+      position: relative;
+    }
+    .hv-panel {
+      width: 280px;
+      background: rgba(14,14,18,0.96);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+      margin-left: -12px;
+      margin-bottom: 8px;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+      overflow: hidden;
+      transform: perspective(800px) rotateY(-4deg);
+    }
+    .hv-rename {
+      padding: 9px 14px; border-bottom: 1px solid rgba(255,255,255,0.06);
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.7);
+    }
+    .hv-rename-pencil { font-size: 11px; opacity: 0.4; }
+    .hv-header {
+      padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06);
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 12px; color: rgba(255,255,255,0.5);
+    }
+    .hv-task {
+      display: flex; align-items: center; gap: 9px;
+      padding: 9px 14px; border-bottom: 1px solid rgba(255,255,255,0.04);
+      font-size: 12px; color: rgba(255,255,255,0.8);
+    }
+    .hv-circle {
+      width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0;
+      border: 1.5px solid rgba(200,164,74,0.5);
+    }
+    .hv-circle.done { background: var(--gold); border-color: var(--gold); }
+    .hv-task.done .hv-task-text { text-decoration: line-through; opacity: 0.32; }
+    .hv-input {
+      display: flex; align-items: center; gap: 8px; padding: 9px 14px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+    .hv-input-bar {
+      flex: 1; height: 26px; border-radius: 6px;
+      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+    }
+    .hv-add { width: 22px; height: 22px; border-radius: 6px; background: var(--gold); opacity: 0.8; }
+
+    /* Wall-E character area */
+    .hv-char-area {
+      height: 148px;
+      display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+      padding-bottom: 8px; position: relative;
+    }
+    .hv-walle {
+      font-size: 72px; line-height: 1;
+      animation: walle-bob 2.8s ease-in-out infinite;
+      filter: drop-shadow(0 8px 20px rgba(200,164,74,0.35));
+    }
+    @keyframes walle-bob {
+      0%, 100% { transform: translateY(0px) rotate(-2deg); }
+      50%       { transform: translateY(-8px) rotate(2deg); }
+    }
+    .hv-badge {
+      position: absolute; top: 10px; right: 10px;
+      width: 20px; height: 20px; border-radius: 50%;
+      background: #E84040; color: #fff; font-size: 10px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .hv-nav {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 10px; border-top: 1px solid rgba(255,255,255,0.05);
+    }
+    .hv-arrow {
+      width: 26px; height: 26px; border-radius: 8px;
+      background: rgba(18,18,22,0.88); border: 1px solid rgba(255,255,255,0.1);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; color: rgba(255,255,255,0.6);
+    }
+    .hv-char-label { font-size: 11px; color: rgba(255,255,255,0.4); }
+
+    /* glow ring around the app */
+    .hv-app::after {
+      content: ''; position: absolute; inset: -1px; border-radius: 18px;
+      background: linear-gradient(135deg, rgba(200,164,74,0.2), transparent 60%);
+      pointer-events: none;
+    }
+
+    /* ── Roadmap ── */
+    .roadmap { padding: 80px 24px; max-width: 1100px; margin: 0 auto; }
+    .roadmap-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 14px; margin-top: 48px;
+    }
+    .roadmap-item {
+      display: flex; align-items: flex-start; gap: 14px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 20px 22px;
+      transition: border-color 0.2s;
+    }
+    .roadmap-item:hover { border-color: rgba(200,164,74,0.25); }
+    .roadmap-status {
+      width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; margin-top: 1px;
+      display: flex; align-items: center; justify-content: center; font-size: 10px;
+    }
+    .roadmap-status.done { background: var(--gold); color: #1a0f00; font-weight: 700; }
+    .roadmap-status.next { background: rgba(200,164,74,0.15); border: 1.5px solid rgba(200,164,74,0.5); }
+    .roadmap-status.future { background: rgba(255,255,255,0.05); border: 1.5px solid rgba(255,255,255,0.12); }
+    .roadmap-body {}
+    .roadmap-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .roadmap-desc { font-size: 13px; color: var(--muted); line-height: 1.5; }
+    .roadmap-tag {
+      display: inline-block; font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+      text-transform: uppercase; padding: 2px 8px; border-radius: 100px; margin-bottom: 6px;
+    }
+    .tag-shipped { background: rgba(200,164,74,0.12); color: var(--gold); }
+    .tag-next    { background: rgba(100,180,255,0.1);  color: #80c8ff; }
+    .tag-future  { background: rgba(255,255,255,0.06); color: var(--muted); }
+
     /* ── Footer ── */
     footer {
       border-top: 1px solid var(--border); padding: 40px 48px;
@@ -222,6 +350,7 @@
       <a href="#features">Features</a>
       <a href="#characters">Characters</a>
       <a href="#stack">Stack</a>
+      <a href="#roadmap">Roadmap</a>
       <a href="https://github.com/deveshrohan/kaaku" class="nav-cta">GitHub →</a>
     </div>
   </nav>
@@ -240,41 +369,48 @@
     </div>
   </section>
 
-  <!-- Preview -->
-  <div class="preview">
-    <div class="preview-window">
-      <div class="preview-bar">
-        <div class="dot dot-red"></div>
-        <div class="dot dot-yellow"></div>
-        <div class="dot dot-green"></div>
+  <!-- Hero Visual -->
+  <div class="hero-visual">
+    <!-- Kaaku floating widget (Wall-E) -->
+    <div class="hv-app">
+      <div class="hv-char-area">
+        <div class="hv-badge">3</div>
+        <div class="hv-walle">🤖</div>
       </div>
-      <div class="preview-content">
-        <div class="preview-buddy">
-          🏴‍☠️
-          <div class="preview-buddy-label">Luffy</div>
-        </div>
-        <div class="preview-panel">
-          <div class="preview-panel-header">
-            <span>📋 Kaaku's Tasks</span>
-            <span style="cursor:pointer;opacity:0.4;">✕</span>
-          </div>
-          <div class="preview-task done">
-            <div class="preview-task-circle done"></div>
-            <span>Ship v1.0 to GitHub</span>
-          </div>
-          <div class="preview-task">
-            <div class="preview-task-circle"></div>
-            <span>Add voice commands</span>
-          </div>
-          <div class="preview-task">
-            <div class="preview-task-circle"></div>
-            <span>Build AI integrations</span>
-          </div>
-          <div class="preview-task">
-            <div class="preview-task-circle"></div>
-            <span>World domination 🌍</span>
-          </div>
-        </div>
+      <div class="hv-nav">
+        <div class="hv-arrow">‹</div>
+        <div class="hv-char-label">🤖 Wall·E</div>
+        <div class="hv-arrow">›</div>
+      </div>
+    </div>
+    <!-- Expanded todo panel -->
+    <div class="hv-panel">
+      <div class="hv-rename">
+        <span>Kaaku</span><span class="hv-rename-pencil">✏️</span>
+      </div>
+      <div class="hv-header">
+        <span>📋 Kaaku's Tasks</span>
+        <span style="opacity:0.3;font-size:11px;">✕</span>
+      </div>
+      <div class="hv-task done">
+        <div class="hv-circle done"></div>
+        <span class="hv-task-text">Ship v1.0 to GitHub</span>
+      </div>
+      <div class="hv-task">
+        <div class="hv-circle"></div>
+        <span class="hv-task-text">Add voice commands</span>
+      </div>
+      <div class="hv-task">
+        <div class="hv-circle"></div>
+        <span class="hv-task-text">Build AI integrations</span>
+      </div>
+      <div class="hv-task">
+        <div class="hv-circle"></div>
+        <span class="hv-task-text">World domination 🌍</span>
+      </div>
+      <div class="hv-input">
+        <div class="hv-input-bar"></div>
+        <div class="hv-add"></div>
       </div>
     </div>
   </div>
@@ -348,6 +484,96 @@
       <span class="stack-tag">Blender</span>
       <span class="stack-tag">electron-builder</span>
       <span class="stack-tag">macOS</span>
+    </div>
+  </section>
+
+  <!-- Roadmap -->
+  <section class="roadmap" id="roadmap">
+    <div class="section-label">// what's next</div>
+    <h2 class="section-title">The roadmap.</h2>
+    <div class="roadmap-grid">
+
+      <div class="roadmap-item">
+        <div class="roadmap-status done">✓</div>
+        <div class="roadmap-body">
+          <div class="roadmap-tag tag-shipped">Shipped</div>
+          <div class="roadmap-title">6 Animated 3D Characters</div>
+          <div class="roadmap-desc">Wall·E, Pikachu, Chopper, Zoro, Luffy, and Po — each with rigged GLB skeletal animations from Blender.</div>
+        </div>
+      </div>
+
+      <div class="roadmap-item">
+        <div class="roadmap-status done">✓</div>
+        <div class="roadmap-body">
+          <div class="roadmap-tag tag-shipped">Shipped</div>
+          <div class="roadmap-title">Built-in Todo List</div>
+          <div class="roadmap-desc">Click your buddy to open a minimal task panel with persistence, animations, and celebrate-on-complete.</div>
+        </div>
+      </div>
+
+      <div class="roadmap-item">
+        <div class="roadmap-status done">✓</div>
+        <div class="roadmap-body">
+          <div class="roadmap-tag tag-shipped">Shipped</div>
+          <div class="roadmap-title">Always-on-top + Launch at Login</div>
+          <div class="roadmap-desc">Floats above every window, starts silently at login, no dock icon. Always there when you need it.</div>
+        </div>
+      </div>
+
+      <div class="roadmap-item">
+        <div class="roadmap-status next"></div>
+        <div class="roadmap-body">
+          <div class="roadmap-tag tag-next">Up Next</div>
+          <div class="roadmap-title">Voice Commands</div>
+          <div class="roadmap-desc">Talk to your buddy. Add tasks, mark things done, or just say hi — hands-free interactions via local speech recognition.</div>
+        </div>
+      </div>
+
+      <div class="roadmap-item">
+        <div class="roadmap-status next"></div>
+        <div class="roadmap-body">
+          <div class="roadmap-tag tag-next">Up Next</div>
+          <div class="roadmap-title">AI-Powered Assistant</div>
+          <div class="roadmap-desc">Ask Kaaku questions, get reminders, summarize your day — powered by Claude API with local context and memory.</div>
+        </div>
+      </div>
+
+      <div class="roadmap-item">
+        <div class="roadmap-status next"></div>
+        <div class="roadmap-body">
+          <div class="roadmap-tag tag-next">Up Next</div>
+          <div class="roadmap-title">Windows &amp; Linux Support</div>
+          <div class="roadmap-desc">Bring Kaaku to all desktops. Cross-platform builds for Windows and Linux via electron-builder.</div>
+        </div>
+      </div>
+
+      <div class="roadmap-item">
+        <div class="roadmap-status future"></div>
+        <div class="roadmap-body">
+          <div class="roadmap-tag tag-future">Future</div>
+          <div class="roadmap-title">Calendar &amp; Notifications</div>
+          <div class="roadmap-desc">Sync with Google Calendar and system notifications. Kaaku reminds you, not the other way around.</div>
+        </div>
+      </div>
+
+      <div class="roadmap-item">
+        <div class="roadmap-status future"></div>
+        <div class="roadmap-body">
+          <div class="roadmap-tag tag-future">Future</div>
+          <div class="roadmap-title">Custom Characters</div>
+          <div class="roadmap-desc">Import your own GLB models. Bring any 3D character to life on your desktop — upload, rig, and go.</div>
+        </div>
+      </div>
+
+      <div class="roadmap-item">
+        <div class="roadmap-status future"></div>
+        <div class="roadmap-body">
+          <div class="roadmap-tag tag-future">Future</div>
+          <div class="roadmap-title">Plugin Ecosystem</div>
+          <div class="roadmap-desc">Pomodoro timer, Spotify controls, GitHub PR alerts, Slack notifications — an extensible plugin system for power users.</div>
+        </div>
+      </div>
+
     </div>
   </section>
 
