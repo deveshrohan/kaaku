@@ -8,6 +8,7 @@
   <meta property="og:title" content="Kaaku — Your 3D Desktop Buddy" />
   <meta property="og:description" content="A 3D animated desktop companion with a built-in todo list. macOS only." />
   <meta property="og:url" content="https://deveshrohan.github.io/kaaku" />
+  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -202,22 +203,37 @@
       margin-top: 64px; display: flex; justify-content: center; align-items: flex-end; gap: 0;
       position: relative;
     }
-    .hv-app {
-      width: 148px;
+    .hv-model-wrap {
+      position: relative; flex-shrink: 0;
+      border-radius: 18px; overflow: hidden;
+      box-shadow: 0 32px 80px rgba(0,0,0,0.7), 0 0 60px rgba(200,164,74,0.12);
       background: rgba(18,18,22,0.92);
       border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 18px;
-      box-shadow: 0 32px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.05), 0 0 60px rgba(200,164,74,0.12);
-      overflow: hidden;
-      position: relative;
+    }
+    .hv-model-wrap::after {
+      content: ''; position: absolute; inset: -1px; border-radius: 18px;
+      background: linear-gradient(135deg, rgba(200,164,74,0.18), transparent 60%);
+      pointer-events: none; z-index: 1;
+    }
+    model-viewer {
+      --poster-color: transparent;
+      --progress-bar-color: rgba(200,164,74,0.8);
+      --progress-mask: rgba(18,18,22,0);
+      width: 180px; height: 260px;
+      display: block; background: transparent;
+    }
+    .hv-anim-hint {
+      position: absolute; bottom: 8px; left: 0; right: 0; z-index: 2;
+      text-align: center; font-size: 10px; color: rgba(255,255,255,0.35);
+      pointer-events: none;
     }
     .hv-panel {
-      width: 280px;
+      width: 260px;
       background: rgba(14,14,18,0.96);
       border: 1px solid rgba(255,255,255,0.08);
       border-radius: 16px;
-      margin-left: -12px;
-      margin-bottom: 8px;
+      margin-left: -16px;
+      margin-bottom: 20px;
       box-shadow: 0 24px 60px rgba(0,0,0,0.6);
       overflow: hidden;
       transform: perspective(800px) rotateY(-4deg);
@@ -253,46 +269,6 @@
       background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
     }
     .hv-add { width: 22px; height: 22px; border-radius: 6px; background: var(--gold); opacity: 0.8; }
-
-    /* Wall-E character area */
-    .hv-char-area {
-      height: 148px;
-      display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
-      padding-bottom: 8px; position: relative;
-    }
-    .hv-walle {
-      font-size: 72px; line-height: 1;
-      animation: walle-bob 2.8s ease-in-out infinite;
-      filter: drop-shadow(0 8px 20px rgba(200,164,74,0.35));
-    }
-    @keyframes walle-bob {
-      0%, 100% { transform: translateY(0px) rotate(-2deg); }
-      50%       { transform: translateY(-8px) rotate(2deg); }
-    }
-    .hv-badge {
-      position: absolute; top: 10px; right: 10px;
-      width: 20px; height: 20px; border-radius: 50%;
-      background: #E84040; color: #fff; font-size: 10px; font-weight: 700;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .hv-nav {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 6px 10px; border-top: 1px solid rgba(255,255,255,0.05);
-    }
-    .hv-arrow {
-      width: 26px; height: 26px; border-radius: 8px;
-      background: rgba(18,18,22,0.88); border: 1px solid rgba(255,255,255,0.1);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 14px; color: rgba(255,255,255,0.6);
-    }
-    .hv-char-label { font-size: 11px; color: rgba(255,255,255,0.4); }
-
-    /* glow ring around the app */
-    .hv-app::after {
-      content: ''; position: absolute; inset: -1px; border-radius: 18px;
-      background: linear-gradient(135deg, rgba(200,164,74,0.2), transparent 60%);
-      pointer-events: none;
-    }
 
     /* ── Roadmap ── */
     .roadmap { padding: 80px 24px; max-width: 1100px; margin: 0 auto; }
@@ -371,17 +347,23 @@
 
   <!-- Hero Visual -->
   <div class="hero-visual">
-    <!-- Kaaku floating widget (Wall-E) -->
-    <div class="hv-app">
-      <div class="hv-char-area">
-        <div class="hv-badge">3</div>
-        <div class="hv-walle">🤖</div>
-      </div>
-      <div class="hv-nav">
-        <div class="hv-arrow">‹</div>
-        <div class="hv-char-label">🤖 Wall·E</div>
-        <div class="hv-arrow">›</div>
-      </div>
+    <!-- Wall-E 3D model -->
+    <div class="hv-model-wrap">
+      <model-viewer
+        id="hero-model"
+        src="./walle.glb"
+        camera-controls
+        auto-rotate
+        auto-rotate-delay="500"
+        rotation-per-second="18deg"
+        shadow-intensity="0.5"
+        exposure="1.1"
+        camera-orbit="0deg 80deg auto"
+        min-camera-orbit="auto 40deg auto"
+        max-camera-orbit="auto 100deg auto"
+        interaction-prompt="none"
+      ></model-viewer>
+      <div class="hv-anim-hint">drag to rotate · click to animate</div>
     </div>
     <!-- Expanded todo panel -->
     <div class="hv-panel">
@@ -414,6 +396,30 @@
       </div>
     </div>
   </div>
+
+  <script>
+    // Wall-E has no baked GLB animations — Luffy/Zoro do.
+    // If we switch to an animated model, this cycles through clips on click.
+    const mv = document.getElementById('hero-model')
+    if (mv) {
+      const anims = ['NlaTrack', 'NlaTrack.001', 'NlaTrack.002']
+      let idx = 0
+      mv.addEventListener('load', () => {
+        const available = mv.availableAnimations
+        if (!available || available.length === 0) return
+        // auto-play first clip once loaded
+        mv.animationName = available[0]
+        mv.play({ repetitions: Infinity })
+      })
+      mv.addEventListener('click', () => {
+        const available = mv.availableAnimations
+        if (!available || available.length === 0) return
+        idx = (idx + 1) % available.length
+        mv.animationName = available[idx]
+        mv.play({ repetitions: Infinity })
+      })
+    }
+  </script>
 
   <!-- Features -->
   <section class="features" id="features">
