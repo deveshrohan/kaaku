@@ -91,9 +91,9 @@ export default function App() {
 
   // ── click-through for transparent areas ──────────────────────
   // Transparent parts of the window pass mouse events to the desktop.
-  // Forwards mousemove even when ignoring so we can detect UI re-entry.
+  // Don't start in ignore mode — let the first mousemove naturally set state.
   useEffect(() => {
-    let ignored = false
+    let ignored = null   // null = unknown, let first move decide
     function onMouseMove(e) {
       const el = document.elementFromPoint(e.clientX, e.clientY)
       const overUI = el && el !== document.documentElement && el !== document.body
@@ -103,7 +103,6 @@ export default function App() {
         window.wallE?.ignoreMouse(shouldIgnore)
       }
     }
-    window.wallE?.ignoreMouse(true)   // start click-through until mouse enters UI
     window.addEventListener('mousemove', onMouseMove)
     return () => window.removeEventListener('mousemove', onMouseMove)
   }, [])
