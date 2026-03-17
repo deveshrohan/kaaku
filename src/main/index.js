@@ -249,7 +249,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: COMPACT.w, height: COMPACT.h,
     x: pos.x, y: pos.y,
-    transparent: true, frame: false, alwaysOnTop: true,
+    transparent: true, backgroundColor: '#00000000',
+    frame: false, alwaysOnTop: true,
     hasShadow: false, resizable: false, skipTaskbar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
