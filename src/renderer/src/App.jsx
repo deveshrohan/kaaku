@@ -23,6 +23,7 @@ const CHARACTERS = [
   { id: 'zoro',    name: 'Zoro',    icon: '⚔️'  },
   { id: 'luffy',   name: 'Luffy',   icon: '🏴‍☠️' },
   { id: 'po',      name: 'Po',      icon: '🐼'  },
+  { id: 'riri',    name: 'Riri',    icon: '👩‍💼' },
 ]
 const PICKER = [{ id: 'all', name: 'Auto', icon: '✨' }, ...CHARACTERS]
 
@@ -33,6 +34,7 @@ const charModules = {
   zoro:    () => import('./characters/Zoro'),
   luffy:   () => import('./characters/Luffy'),
   po:      () => import('./characters/Po'),
+  riri:    () => import('./characters/Riri'),
 }
 
 function CharacterRenderer({ charId, animState, onAnimComplete }) {
@@ -58,31 +60,6 @@ export default function App() {
   const [animState, setAnimState]       = useState('idle')
   const [notifQueue, setNotifQueue]     = useState([])   // pending bubbles
   const currentNotif = notifQueue[0] ?? null
-
-  // ── assistant name ───────────────────────────────────────────
-  const [assistantName, setAssistantName] = useState(
-    () => localStorage.getItem('assistant-name') || 'Kaaku'
-  )
-  const [isRenaming, setIsRenaming]   = useState(false)
-  const [renameInput, setRenameInput] = useState('')
-  const renameRef = useRef()
-
-  function startRename(e) {
-    e.stopPropagation()
-    setRenameInput(assistantName)
-    setIsRenaming(true)
-    setTimeout(() => renameRef.current?.select(), 50)
-  }
-  function commitRename() {
-    const n = renameInput.trim() || 'My Assistant'
-    setAssistantName(n)
-    localStorage.setItem('assistant-name', n)
-    setIsRenaming(false)
-  }
-  function onRenameKey(e) {
-    if (e.key === 'Enter')  commitRename()
-    if (e.key === 'Escape') setIsRenaming(false)
-  }
 
   // ── character picker ─────────────────────────────────────────
   const [pickerIdx, setPickerIdx] = useState(1)       // 0=auto, 1-6=chars
@@ -128,6 +105,17 @@ export default function App() {
     return cleanup
   }, [])
 
+  // ── Slack resolution: mark todos done when resolved remotely ──
+  useEffect(() => {
+    const cleanup = window.wallE?.onTodosResolved(resolvedIds => {
+      setTodos(prev => prev.map(t =>
+        resolvedIds.includes(t.id) ? { ...t, done: true } : t
+      ))
+      setAnimState('celebrate')
+    })
+    return cleanup
+  }, [])
+
   // ── notification bubble ───────────────────────────────────────
   function dismissNotif() {
     // Remove permission requests from the todo list — they're transient, not tasks
@@ -152,9 +140,9 @@ export default function App() {
   function closePanel() { setShowTodo(false); setShowSettings(false); window.wallE?.setPanelOpen(false) }
 
   // ── character interactions ───────────────────────────────────
-  const specialIdxRef = useRef(0)
-  const manualRotRef  = useRef(0)
-  const canvasDrag    = useRef({ active: false, startX: 0, startRotY: 0, moved: false })
+  const specialIdxRef  = useRef(0)
+  const manualRotRef   = useRef(0)
+  const canvasDrag     = useRef({ active: false, startX: 0, startRotY: 0, moved: false })
 
   function handleRightClick(e) {
     e.preventDefault()
@@ -245,7 +233,7 @@ export default function App() {
     window.removeEventListener('mouseup',   onMouseUp)
   }
 
-  const pendingCount = todos.filter(t => !t.done).length
+  const pendingCount = todos.filter(t => !t.done && !t.requiresResponse).length
 
   return (
     <div className={`app-root ${showTodo ? 'expanded' : 'compact'}`}>
@@ -260,25 +248,6 @@ export default function App() {
             exit={{    opacity: 0, y: 16, scale: 0.97 }}
             transition={{ type: 'spring', stiffness: 320, damping: 28 }}
           >
-            {/* Rename bar */}
-            <div className="rename-bar">
-              {isRenaming ? (
-                <input
-                  ref={renameRef}
-                  className="rename-input"
-                  value={renameInput}
-                  onChange={e => setRenameInput(e.target.value)}
-                  onBlur={commitRename}
-                  onKeyDown={onRenameKey}
-                />
-              ) : (
-                <>
-                  <span className="rename-name">{assistantName}</span>
-                  <button className="rename-btn" onClick={startRename} title="Rename">✏️</button>
-                </>
-              )}
-            </div>
-
             <AnimatePresence mode="wait">
               {showSettings ? (
                 <SettingsPanel key="settings" onClose={() => setShowSettings(false)} />
@@ -290,7 +259,6 @@ export default function App() {
                   onTaskComplete={handleTaskComplete}
                   onClose={closePanel}
                   onOpenSettings={() => setShowSettings(true)}
-                  assistantName={assistantName}
                 />
               )}
             </AnimatePresence>

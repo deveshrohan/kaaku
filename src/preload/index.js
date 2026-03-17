@@ -12,9 +12,14 @@ contextBridge.exposeInMainWorld('wallE', {
   diagnoseSlack:    ()   => ipcRenderer.invoke('slack:diagnose'),
   clearProcessedIds:    ()           => ipcRenderer.invoke('slack:clear-processed'),
   respondPermission:    (id, action) => ipcRenderer.invoke('permission:respond', { id, action }),
-  onTodosPushed: (cb)    => {
+  onTodosPushed: (cb) => {
     const handler = (_, todos) => cb(todos)
     ipcRenderer.on('todos:pushed', handler)
     return () => ipcRenderer.removeListener('todos:pushed', handler)
+  },
+  onTodosResolved: (cb) => {
+    const handler = (_, ids) => cb(ids)
+    ipcRenderer.on('todos:resolved', handler)
+    return () => ipcRenderer.removeListener('todos:resolved', handler)
   },
 })

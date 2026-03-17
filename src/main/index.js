@@ -20,7 +20,7 @@ const SETTINGS_FILE = join(app.getPath('userData'), 'settings.json')
 
 const COMPACT  = { w: 132, h: 200 }
 const BUBBLE   = { w: 300, h: 320 }
-const EXPANDED = { w: 320, h: 490 }
+const EXPANDED = { w: 440, h: 680 }
 
 // ── Todos ─────────────────────────────────────────────────────────
 function loadTodos() {
@@ -68,28 +68,53 @@ async function runSync() {
   const hasApiKey = settings.groqApiKey || settings.claudeApiKey
   if (!hasToken || !hasApiKey) return
 
+  // Pass existing unresolved Slack tasks so resolution can be checked
+  const allTodos        = loadTodos()
+  const pendingSlackTasks = allTodos.filter(t => !t.done && t.source === 'slack' && t.slackChannel)
+
   const result = await syncSlack({
-    slackToken:     settings.slackToken,
-    slackUserToken: settings.slackUserToken,
-    claudeApiKey:   settings.claudeApiKey,
-    groqApiKey:     settings.groqApiKey,
-    provider:       settings.llmProvider,
-    processedIds:   settings.processedIds,
-    lookbackHours:  settings.lookbackHours,
+    slackToken:       settings.slackToken,
+    slackUserToken:   settings.slackUserToken,
+    claudeApiKey:     settings.claudeApiKey,
+    groqApiKey:       settings.groqApiKey,
+    provider:         settings.llmProvider,
+    processedIds:     settings.processedIds,
+    lookbackHours:    settings.lookbackHours,
+    pendingSlackTasks,
   })
 
-  if (result.todos.length > 0) {
-    const todos = loadTodos()
-    saveTodos([...todos, ...result.todos])
+  let updatedTodos = allTodos
+
+  // Mark resolved tasks as done
+  if (result.resolvedIds?.length > 0) {
+    updatedTodos = updatedTodos.map(t =>
+      result.resolvedIds.includes(t.id) ? { ...t, done: true } : t
+    )
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('todos:pushed', result.todos)
+      try { mainWindow.webContents.send('todos:resolved', result.resolvedIds) } catch {}
     }
   }
 
+  // Update latestTs on tasks that had new activity but aren't resolved yet
+  if (result.updatedTasks?.length > 0) {
+    const updatedMap = new Map(result.updatedTasks.map(t => [t.id, t]))
+    updatedTodos = updatedTodos.map(t => updatedMap.has(t.id) ? updatedMap.get(t.id) : t)
+  }
+
+  // Add new todos
+  if (result.todos.length > 0) {
+    updatedTodos = [...updatedTodos, ...result.todos]
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try { mainWindow.webContents.send('todos:pushed', result.todos) } catch {}
+    }
+  }
+
+  saveTodos(updatedTodos)
+
   saveSettings({
     ...settings,
-    processedIds: result.processedIds,
-    lastSyncedAt: Date.now(),
+    processedIds:  result.processedIds,
+    lastSyncedAt:  Date.now(),
     lastSyncError: result.error || null,
     lastSyncAdded: result.todos.length,
   })
@@ -115,7 +140,7 @@ function pushEvent({ type, title, body = '', priority = 'high', source = 'system
   const todos = loadTodos()
   saveTodos([...todos, todo])
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('todos:pushed', [todo])
+    try { mainWindow.webContents.send('todos:pushed', [todo]) } catch {}
   }
   return todo
 }
@@ -170,7 +195,7 @@ function startEventServer() {
 
           // Push bubble to renderer (do NOT save to todos — it's transient)
           if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('todos:pushed', [notification])
+            try { mainWindow.webContents.send('todos:pushed', [notification]) } catch {}
           }
 
           // Timeout: allow by default after 30s if user doesn't respond
@@ -232,7 +257,7 @@ function createWindow() {
   if (process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../../renderer/index.html'))
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
   app.on('second-instance', () => {
@@ -244,17 +269,28 @@ function createWindow() {
 
   // ── IPC ─────────────────────────────────────────────────────────
   function resizeTo(dim) {
+    const { width: sw, height: sh } = screen.getPrimaryDisplay().bounds
     const [cx, cy] = mainWindow.getPosition()
     const [cw, ch] = mainWindow.getSize()
+
+    // Anchor: keep the bottom-centre of the current window stationary
+    let nx = cx + Math.floor(cw / 2) - Math.floor(dim.w / 2)
+    let ny = cy + ch - dim.h
+
+    // Clamp so the window never overflows any screen edge (8px breathing room)
+    const EDGE = 8
+    nx = Math.max(EDGE, Math.min(nx, sw - dim.w - EDGE))
+    ny = Math.max(EDGE, Math.min(ny, sh - dim.h))
+
     mainWindow.setSize(dim.w, dim.h)
-    mainWindow.setPosition(cx + Math.floor(cw / 2) - Math.floor(dim.w / 2), cy + ch - dim.h)
+    mainWindow.setPosition(nx, ny)
   }
 
   ipcMain.handle('set-panel-open', (_, open) => resizeTo(open ? EXPANDED : COMPACT))
   ipcMain.handle('set-bubble-open', (_, open) => resizeTo(open ? BUBBLE : COMPACT))
 
   ipcMain.handle('move-window', (_, { dx, dy }) => {
-    const { width, height } = screen.getPrimaryDisplay().workAreaSize
+    const { width, height } = screen.getPrimaryDisplay().bounds
     const [x, y] = mainWindow.getPosition()
     const [w, h] = mainWindow.getSize()
     const nx = Math.max(0, Math.min(x + dx, width  - w))

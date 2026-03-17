@@ -6,59 +6,72 @@ const GROQ_BASE_URL = 'https://api.groq.com/openai/v1'
 const GROQ_MODEL    = 'llama-3.3-70b-versatile'
 const CLAUDE_MODEL  = 'claude-haiku-4-5-20251001'
 
-async function classify({ provider, claudeApiKey, groqApiKey, userId, msgBlock }) {
-  const prompt = `You are an intelligent assistant helping a busy professional named Devesh stay on top of their Slack workspace.
+const COMPLETION_EMOJIS = new Set([
+  'white_check_mark', 'heavy_check_mark', 'ballot_box_with_check',
+  'done', 'ticket', 'jira', 'check', 'checkered_flag',
+])
 
-Analyze these Slack messages and extract EVERYTHING important for the user (ID: ${userId}).
+// Module-level user name cache — persists across syncs in the same session
+const nameCache = new Map()
+let nameCachePopulated = false
 
-Context:
-- Channels starting with D are direct messages with the user — high importance
-- "[thread]" prefix means it's a reply in a thread where the user was mentioned
-- <@${userId}> means the user is directly addressed
-
-Capture ALL of the following:
-1. Direct action items, requests, or tasks assigned to the user
-2. Questions directed at the user that need a response
-3. Important decisions, updates, or announcements the user should know about
-4. Deadlines, meetings, or time-sensitive items
-5. Things others are waiting on from the user (blockers)
-6. Anything the user was specifically @mentioned for
-
-Messages:
-${msgBlock}
-
-For each important item, output a JSON array item:
-{"idx": <0-based index>, "text": "<concise summary, max 80 chars>", "priority": "high|medium|low"}
-
-Priority:
-- high: direct request/task to user, urgent, deadline, blocking someone, @mentioned
-- medium: should respond soon, decisions affecting user, important FYI
-- low: useful context, informational, indirect relevance
-
-Be thorough — it is better to surface too much than miss something important.
-Return ONLY a valid JSON array. If nothing important, return [].`
-
-  let rawText
-
-  if (provider === 'groq') {
-    const groq = new OpenAI({ apiKey: groqApiKey, baseURL: GROQ_BASE_URL })
-    const res = await groq.chat.completions.create({
-      model: GROQ_MODEL,
-      max_tokens: 2048,
-      messages: [{ role: 'user', content: prompt }],
-    })
-    rawText = res.choices[0].message.content ?? ''
-  } else {
-    const anthropic = new Anthropic({ apiKey: claudeApiKey })
-    const res = await anthropic.messages.create({
-      model: CLAUDE_MODEL,
-      max_tokens: 2048,
-      messages: [{ role: 'user', content: prompt }],
-    })
-    rawText = res.content[0].text ?? ''
+// Bulk-populate name cache via users.list (requires users:read).
+// Called once per session; subsequent calls are no-ops.
+async function populateNameCache(slack) {
+  if (nameCachePopulated) return
+  try {
+    let cursor
+    do {
+      const res = await slack.users.list({ limit: 200, cursor })
+      for (const user of res.members || []) {
+        if (user.deleted || user.is_bot) continue
+        const n = user.profile?.display_name_normalized
+               || user.profile?.display_name
+               || user.real_name
+               || user.name
+               || user.id
+        nameCache.set(user.id, n)
+      }
+      cursor = res.response_metadata?.next_cursor
+    } while (cursor)
+    nameCachePopulated = true
+  } catch (err) {
+    // users:read scope unavailable — fall back to per-user lookups
+    console.warn('users.list failed, falling back to users.info per-lookup:', err.message)
   }
+}
 
-  return rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+async function getName(slack, uid) {
+  if (!uid) return 'unknown'
+  if (nameCache.has(uid)) return nameCache.get(uid)
+  try {
+    const r = await slack.users.info({ user: uid })
+    const n = r.user?.profile?.display_name_normalized
+           || r.user?.profile?.display_name
+           || r.user?.real_name
+           || r.user?.name
+           || uid
+    nameCache.set(uid, n)
+    return n
+  } catch (err) {
+    console.warn(`users.info failed for ${uid}:`, err.message)
+    nameCache.set(uid, uid)
+    return uid
+  }
+}
+
+function relTime(ts) {
+  const mins = Math.round((Date.now() / 1000 - parseFloat(ts)) / 60)
+  if (mins < 2)  return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24)  return `${hrs}h ago`
+  return `${Math.round(hrs / 24)}d ago`
+}
+
+// Replace <@UXXX> with @name using cache
+function resolveText(text) {
+  return (text || '').replace(/<@(U[A-Z0-9]+)>/g, (_, uid) => `@${nameCache.get(uid) || uid}`)
 }
 
 // Fetch all channels the user is in, sorted by most recently active first
@@ -68,20 +81,15 @@ async function fetchActiveChannels(slack, userId, oldest) {
   do {
     const res = await slack.users.conversations({
       types: 'public_channel,private_channel,mpim,im',
-      exclude_archived: true,
-      limit: 200,
-      user: userId,
-      cursor,
+      exclude_archived: true, limit: 200, user: userId, cursor,
     })
     for (const ch of res.channels || []) {
-      // Skip channels with no activity in the lookback window
       if (ch.latest?.ts && parseFloat(ch.latest.ts) < parseFloat(oldest)) continue
       all.push(ch)
     }
     cursor = res.response_metadata?.next_cursor
   } while (cursor)
 
-  // Sort: DMs first, then MPDMs, then private, then public — each group by recency
   const priority = ch => ch.is_im ? 0 : ch.is_mpim ? 1 : ch.is_private ? 2 : 3
   all.sort((a, b) => {
     const pd = priority(a) - priority(b)
@@ -89,6 +97,288 @@ async function fetchActiveChannels(slack, userId, oldest) {
     return parseFloat(b.latest?.ts || 0) - parseFloat(a.latest?.ts || 0)
   })
   return all
+}
+
+// Build conversation units from all active channels
+// Each unit = { type, channelId, channelName, messages[], threadTs, latestTs, keys[] }
+async function buildConversationUnits(slack, userId, oldest, processedSet) {
+  // Bulk-populate name cache upfront so all message senders resolve correctly
+  await populateNameCache(slack)
+
+  const channels = await fetchActiveChannels(slack, userId, oldest)
+  const units = []
+
+  for (const ch of channels) {
+    try {
+      const hist = await slack.conversations.history({ channel: ch.id, oldest, limit: 50 })
+      const msgs = (hist.messages || []).filter(m => !m.subtype && !m.bot_id)
+      if (msgs.length === 0) continue
+
+      if (ch.is_im || ch.is_mpim) {
+        // DM / Group DM: entire lookback window = one conversation unit
+        const sorted = [...msgs].reverse() // oldest first
+        const newKeys = sorted
+          .filter(m => !processedSet.has(`${ch.id}:${m.ts}`))
+          .map(m => `${ch.id}:${m.ts}`)
+        if (newKeys.length === 0) continue
+
+        // Resolve any senders not already in cache
+        for (const m of sorted) await getName(slack, m.user)
+
+        // For 1-on-1 DMs: use the other person's display name as channel name.
+        // For group DMs: clean up the auto-generated "mpdm-alice--bob-1" format.
+        let channelName = ch.name || ch.id
+        if (ch.is_im && ch.user) {
+          const otherName = await getName(slack, ch.user)
+          if (otherName !== ch.user) channelName = otherName
+        } else if (ch.is_mpim && ch.name) {
+          // "mpdm-alice--bob--charlie-1" → "alice, bob, charlie"
+          const cleaned = ch.name.replace(/^mpdm-/, '').replace(/-\d+$/, '').split('--').join(', ')
+          if (cleaned) channelName = cleaned
+        }
+
+        units.push({
+          type: ch.is_im ? 'dm' : 'group_dm',
+          channelId: ch.id,
+          channelName,
+          messages: sorted.map(m => ({
+            ts: m.ts, user: m.user, isMe: m.user === userId,
+            text: m.text || '', reactions: m.reactions || [],
+          })),
+          threadTs: null,
+          latestTs: sorted[sorted.length - 1]?.ts,
+          keys: newKeys,
+        })
+      } else {
+        // Channel: group by thread, only include threads/mentions involving the user
+        for (const msg of msgs) {
+          const msgKey   = `${ch.id}:${msg.ts}`
+          const isMention = (msg.text || '').includes(`<@${userId}>`)
+          const inThread  = (msg.reply_users || []).includes(userId)
+
+          if (!isMention && !inThread) {
+            // Not relevant — mark processed so we never revisit
+            processedSet.add(msgKey)
+            continue
+          }
+
+          if (msg.reply_count > 0 || inThread) {
+            try {
+              const thread = await slack.conversations.replies({
+                channel: ch.id, ts: msg.thread_ts || msg.ts, oldest, limit: 50,
+              })
+              const threadMsgs = (thread.messages || []).filter(m => !m.subtype && !m.bot_id)
+              const newKeys = threadMsgs
+                .filter(m => !processedSet.has(`${ch.id}:${m.ts}`))
+                .map(m => `${ch.id}:${m.ts}`)
+              if (newKeys.length === 0) continue
+
+              // Pre-resolve names
+              for (const m of threadMsgs) await getName(slack, m.user)
+
+              const latestTs = thread.messages?.[0]?.latest_reply
+                            || threadMsgs[threadMsgs.length - 1]?.ts
+
+              units.push({
+                type: 'thread',
+                channelId: ch.id,
+                channelName: ch.name || ch.id,
+                messages: threadMsgs.map(m => ({
+                  ts: m.ts, user: m.user, isMe: m.user === userId,
+                  text: m.text || '', reactions: m.reactions || [],
+                })),
+                threadTs: msg.thread_ts || msg.ts,
+                latestTs,
+                keys: newKeys,
+              })
+            } catch {}
+          } else if (isMention) {
+            // Standalone @mention (no thread)
+            if (processedSet.has(msgKey)) continue
+            await getName(slack, msg.user)
+            units.push({
+              type: 'channel_mention',
+              channelId: ch.id,
+              channelName: ch.name || ch.id,
+              messages: [{
+                ts: msg.ts, user: msg.user, isMe: msg.user === userId,
+                text: msg.text || '', reactions: msg.reactions || [],
+              }],
+              threadTs: msg.ts,
+              latestTs: msg.ts,
+              keys: [msgKey],
+            })
+          }
+        }
+      }
+    } catch {}
+  }
+
+  return units
+}
+
+// Format conversation units into a readable block for the AI
+function formatUnitsForAI(units) {
+  return units.map((unit, i) => {
+    const typeLabel = {
+      dm:              'Direct Message',
+      group_dm:        'Group DM',
+      thread:          `Thread in #${unit.channelName}`,
+      channel_mention: `Channel #${unit.channelName} (@mentioned)`,
+    }[unit.type] || unit.type
+
+    const lines = [`=== UNIT ${i} ===`, `Type: ${typeLabel}`]
+    for (const msg of unit.messages) {
+      const who  = msg.isMe ? 'you' : `@${nameCache.get(msg.user) || msg.user}`
+      const time = relTime(msg.ts)
+      const text = resolveText(msg.text).slice(0, 400)
+      lines.push(`  ${who} [${time}]: ${text}`)
+    }
+    return lines.join('\n')
+  }).join('\n\n')
+}
+
+// Classify conversation units — returns richer task objects
+async function classify({ provider, claudeApiKey, groqApiKey, unitBlock }) {
+  const prompt = `You are an intelligent assistant helping a busy professional stay on top of their Slack.
+
+Analyze these conversation units and identify what requires action from "you".
+
+RULES:
+- "you" = the user in the conversation
+- DMs and Group DMs are high priority by default
+- @mentions in channels are high priority
+- If "you" said "will check", "on it", "sure", "looking into it", "noted" → the task is STILL PENDING (acknowledged but not delivered)
+- If "you" said "done", "sent", "fixed", "raised ticket", "PR up", "deployed", "merged" → likely resolved, skip it
+- If "you" asked a question back → pending on them, lower priority
+- Only extract items where YOU need to act, or critical FYIs
+
+For each actionable unit output one JSON object:
+{
+  "unitIdx": <number>,
+  "action": "<specific action — include names, what, why — 60-100 chars>",
+  "context": "<who asked, where, any urgency — max 60 chars>",
+  "from": "<display name of the person asking, or 'multiple'>",
+  "type": "task|reply|fyi|deadline",
+  "priority": "high|medium|low",
+  "pendingOnMe": true|false
+}
+
+Types: task=concrete thing to do, reply=someone waiting for your response, fyi=important info no action, deadline=time-sensitive
+
+Priority: high=urgent/blocking/DM/acknowledged-but-undelivered, medium=should respond soon, low=FYI/indirect
+
+Conversation units:
+${unitBlock}
+
+Return ONLY a valid JSON array. If nothing actionable, return [].`
+
+  let rawText
+
+  if (provider === 'groq') {
+    const groq = new OpenAI({ apiKey: groqApiKey, baseURL: GROQ_BASE_URL })
+    const res = await groq.chat.completions.create({
+      model: GROQ_MODEL, max_tokens: 2048,
+      messages: [{ role: 'user', content: prompt }],
+    })
+    rawText = res.choices[0].message.content ?? ''
+  } else {
+    const anthropic = new Anthropic({ apiKey: claudeApiKey })
+    const res = await anthropic.messages.create({
+      model: CLAUDE_MODEL, max_tokens: 2048,
+      messages: [{ role: 'user', content: prompt }],
+    })
+    rawText = res.content[0].text ?? ''
+  }
+
+  return rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+}
+
+// Check if a set of new messages signals task completion
+function isResolved(msgs, userId) {
+  const COMPLETION = /\b(done|sent|fixed|deployed|shipped|raised|created.{0,10}(ticket|jira)|pr.?up|merged|resolved|handled|sorted|completed|finished|pushed|uploaded|shared|updated|lgtm|approved|closing|closed)\b/i
+
+  for (const msg of msgs) {
+    // Emoji reaction from user on any message
+    for (const reaction of (msg.reactions || [])) {
+      if (COMPLETION_EMOJIS.has(reaction.name) && (reaction.users || []).includes(userId)) {
+        return true
+      }
+    }
+    // User sent a completion message
+    if (msg.user === userId && COMPLETION.test(msg.text || '')) {
+      return true
+    }
+  }
+  return false
+}
+
+// Check pending Slack tasks for resolution — only re-fetches threads with new activity
+export async function checkResolutions(slack, userId, pendingTasks) {
+  const resolvedIds  = []
+  const updatedTasks = [] // tasks with updated latestTs
+
+  const CAP = 30 // max re-checks per sync cycle
+  let checked = 0
+
+  for (const task of pendingTasks) {
+    if (!task.slackChannel || checked >= CAP) break
+    checked++
+
+    try {
+      if (task.slackThreadTs) {
+        // Thread — check if latest_reply changed
+        const hist = await slack.conversations.history({
+          channel: task.slackChannel,
+          latest:    String(parseFloat(task.slackThreadTs) + 1),
+          oldest:    String(parseFloat(task.slackThreadTs) - 1),
+          limit: 1, inclusive: true,
+        })
+        const parent = hist.messages?.[0]
+        if (!parent) continue
+
+        const currentLatest = parent.latest_reply || parent.ts
+        if (currentLatest === task.slackLatestTs) continue // no new activity
+
+        // New activity — fetch only new replies
+        const thread = await slack.conversations.replies({
+          channel: task.slackChannel,
+          ts:      task.slackThreadTs,
+          oldest:  task.slackLatestTs || task.slackThreadTs,
+          limit:   20,
+        })
+        const newMsgs = (thread.messages || []).filter(
+          m => parseFloat(m.ts) > parseFloat(task.slackLatestTs || '0') && !m.subtype
+        )
+
+        if (isResolved(newMsgs, userId)) {
+          resolvedIds.push(task.id)
+        } else {
+          updatedTasks.push({ ...task, slackLatestTs: currentLatest })
+        }
+      } else if (task.slackChannel) {
+        // DM — check for new messages since last seen ts
+        const hist = await slack.conversations.history({
+          channel: task.slackChannel,
+          oldest:  task.slackLatestTs || String(Date.now() / 1000 - 3600),
+          limit:   20,
+        })
+        const newMsgs = (hist.messages || []).filter(
+          m => parseFloat(m.ts) > parseFloat(task.slackLatestTs || '0') && !m.subtype && !m.bot_id
+        )
+        if (newMsgs.length === 0) continue
+
+        if (isResolved(newMsgs, userId)) {
+          resolvedIds.push(task.id)
+        } else {
+          const latestTs = newMsgs[0]?.ts || task.slackLatestTs
+          updatedTasks.push({ ...task, slackLatestTs: latestTs })
+        }
+      }
+    } catch {}
+  }
+
+  return { resolvedIds, updatedTasks }
 }
 
 export async function diagnoseSlack({ slackToken, slackUserToken, claudeApiKey, groqApiKey, provider = 'groq', lookbackHours = 6 }) {
@@ -99,7 +389,6 @@ export async function diagnoseSlack({ slackToken, slackUserToken, claudeApiKey, 
   const tokenType = slackUserToken ? 'User token (xoxp)' : 'Bot token (xoxb)'
   const slack = new WebClient(activeToken)
 
-  // Step 1: auth
   let userId
   try {
     const auth = await slack.auth.test()
@@ -110,7 +399,6 @@ export async function diagnoseSlack({ slackToken, slackUserToken, claudeApiKey, 
     return steps
   }
 
-  // Step 2: active channels in lookback window
   const oldest = String((Date.now() / 1000) - lookbackHours * 3600)
   let activeChannels = []
   try {
@@ -127,7 +415,6 @@ export async function diagnoseSlack({ slackToken, slackUserToken, claudeApiKey, 
     return steps
   }
 
-  // Step 3: sample messages
   let totalMsgs = 0
   for (const ch of activeChannels.slice(0, 10)) {
     try {
@@ -142,9 +429,14 @@ export async function diagnoseSlack({ slackToken, slackUserToken, claudeApiKey, 
       }
     } catch {}
   }
-  steps.push({ ok: totalMsgs > 0, label: `Messages (last ${lookbackHours}h)`, detail: totalMsgs > 0 ? `${totalMsgs} message(s) found across ${Math.min(activeChannels.length, 10)} channels (sample)` : 'No messages found — try increasing "Look back" hours' })
+  steps.push({
+    ok: totalMsgs > 0,
+    label: `Messages (last ${lookbackHours}h)`,
+    detail: totalMsgs > 0
+      ? `${totalMsgs} message(s) found across ${Math.min(activeChannels.length, 10)} channels (sample)`
+      : 'No messages found — try increasing "Look back" hours',
+  })
 
-  // Step 4: AI key
   const keyOk = provider === 'groq' ? !!groqApiKey : !!claudeApiKey
   steps.push({ ok: keyOk, label: `${provider === 'groq' ? 'Groq' : 'Claude'} API key`, detail: keyOk ? 'Key is set' : 'No API key entered' })
 
@@ -152,13 +444,14 @@ export async function diagnoseSlack({ slackToken, slackUserToken, claudeApiKey, 
 }
 
 export async function syncSlack({
-  slackToken, slackUserToken, claudeApiKey, groqApiKey, provider = 'claude',
+  slackToken, slackUserToken, claudeApiKey, groqApiKey, provider = 'groq',
   processedIds = [], lookbackHours = 6,
+  pendingSlackTasks = [],
 }) {
   const activeToken = slackUserToken || slackToken
-  if (!activeToken) return { todos: [], processedIds, error: 'Missing Slack token' }
-  if (provider === 'groq' && !groqApiKey)    return { todos: [], processedIds, error: 'Missing Groq API key' }
-  if (provider === 'claude' && !claudeApiKey) return { todos: [], processedIds, error: 'Missing Claude API key' }
+  if (!activeToken)                            return { todos: [], resolvedIds: [], updatedTasks: [], processedIds, error: 'Missing Slack token' }
+  if (provider === 'groq'   && !groqApiKey)   return { todos: [], resolvedIds: [], updatedTasks: [], processedIds, error: 'Missing Groq API key' }
+  if (provider === 'claude' && !claudeApiKey) return { todos: [], resolvedIds: [], updatedTasks: [], processedIds, error: 'Missing Claude API key' }
 
   const slack = new WebClient(activeToken)
 
@@ -167,80 +460,62 @@ export async function syncSlack({
     const userId = auth.user_id
     const oldest = String((Date.now() / 1000) - lookbackHours * 3600)
     const processedSet = new Set(processedIds)
-    const messages = []
 
-    // Only channels that had activity in the lookback window — covers all 1000+ channels efficiently
-    const activeChannels = await fetchActiveChannels(slack, userId, oldest)
+    // ── Step 1: Check resolutions for existing pending Slack tasks ──
+    const { resolvedIds, updatedTasks } = await checkResolutions(slack, userId, pendingSlackTasks)
 
-    for (const ch of activeChannels) {
-      try {
-        const hist = await slack.conversations.history({ channel: ch.id, oldest, limit: 30 })
-        for (const msg of hist.messages || []) {
-          if (msg.subtype || msg.bot_id) continue
+    // ── Step 2: Build conversation units for new messages ──
+    const units = await buildConversationUnits(slack, userId, oldest, processedSet)
 
-          const key = `${ch.id}:${msg.ts}`
-          if (!processedSet.has(key)) {
-            messages.push({ key, channel: ch.name || ch.id, text: msg.text || '' })
-          }
-
-          // Thread replies that mention the user
-          if (msg.reply_count > 0 && (msg.reply_users || []).includes(userId)) {
-            try {
-              const thread = await slack.conversations.replies({ channel: ch.id, ts: msg.thread_ts || msg.ts, oldest, limit: 50 })
-              for (const reply of (thread.messages || []).slice(1)) {
-                if (reply.subtype || reply.bot_id) continue
-                const rkey = `${ch.id}:${reply.ts}`
-                if (processedSet.has(rkey)) continue
-                if ((reply.text || '').includes(`<@${userId}>`)) {
-                  messages.push({ key: rkey, channel: ch.name || ch.id, text: `[thread] ${reply.text || ''}` })
-                }
-              }
-            } catch {}
-          }
-        }
-      } catch {}
+    if (units.length === 0) {
+      return { todos: [], resolvedIds, updatedTasks, processedIds: [...processedSet].slice(-2000) }
     }
 
-    if (messages.length === 0) {
-      return { todos: [], processedIds: [...processedSet].slice(-2000) }
-    }
-
-    // Process in batches of 60 to avoid token limits
-    const BATCH = 60
+    // ── Step 3: Classify in batches of 20 units ──
+    const BATCH = 20
     const todos = []
 
-    for (let i = 0; i < messages.length; i += BATCH) {
-      const batch = messages.slice(i, i + BATCH)
-      const msgBlock = batch.map((m, j) => `[${j}] #${m.channel}: ${m.text.slice(0, 300)}`).join('\n')
+    for (let i = 0; i < units.length; i += BATCH) {
+      const batch     = units.slice(i, i + BATCH)
+      const unitBlock = formatUnitsForAI(batch)
 
-      const raw = await classify({ provider, claudeApiKey, groqApiKey, userId, msgBlock })
+      const raw = await classify({ provider, claudeApiKey, groqApiKey, unitBlock })
       let actionables = []
       try { actionables = JSON.parse(raw) } catch { continue }
 
       for (const a of actionables) {
-        const msg = batch[a.idx]
-        if (!msg) continue
-        processedSet.add(msg.key)
+        const unit = batch[a.unitIdx]
+        if (!unit) continue
+
+        // Mark all keys in this unit as processed
+        for (const key of unit.keys) processedSet.add(key)
+
+        if (!a.pendingOnMe) continue // skip if AI determined it's not pending on user
+
         todos.push({
-          id: Date.now() + Math.random(),
-          text: a.text,
-          done: false,
-          priority: ['high', 'medium', 'low'].includes(a.priority) ? a.priority : 'low',
-          source: 'slack',
-          slackChannel: msg.channel,
+          id:             Date.now() + Math.random(),
+          text:           a.action,
+          context:        a.context || '',
+          from:           a.from || '',
+          type:           ['task', 'reply', 'fyi', 'deadline'].includes(a.type) ? a.type : 'task',
+          done:           false,
+          priority:       ['high', 'medium', 'low'].includes(a.priority) ? a.priority : 'medium',
+          source:         'slack',
+          slackChannel:   unit.channelId,
+          slackChannelName: unit.channelName,
+          slackThreadTs:  unit.threadTs,
+          slackLatestTs:  unit.latestTs,
         })
+      }
+
+      // Mark remaining unprocessed keys (non-actionable) as processed
+      for (const unit of batch) {
+        for (const key of unit.keys) processedSet.add(key)
       }
     }
 
-    // Mark non-actionable messages older than 1h as processed
-    const oneHourAgo = (Date.now() / 1000) - 3600
-    for (const msg of messages) {
-      const ts = parseFloat(msg.key.split(':')[1] || '0')
-      if (ts < oneHourAgo) processedSet.add(msg.key)
-    }
-
-    return { todos, processedIds: [...processedSet].slice(-2000) }
+    return { todos, resolvedIds, updatedTasks, processedIds: [...processedSet].slice(-2000) }
   } catch (err) {
-    return { todos: [], processedIds, error: err.message }
+    return { todos: [], resolvedIds: [], updatedTasks: [], processedIds, error: err.message }
   }
 }
