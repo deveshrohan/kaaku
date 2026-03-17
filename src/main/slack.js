@@ -453,7 +453,7 @@ export async function diagnoseSlack({ slackToken, slackUserToken, claudeApiKey, 
 
 export async function syncSlack({
   slackToken, slackUserToken, claudeApiKey, groqApiKey, provider = 'groq',
-  processedIds = [], lookbackHours = 6,
+  processedIds = [], lookbackHours = 24,
   pendingSlackTasks = [],
 }) {
   const activeToken = slackUserToken || slackToken
@@ -467,63 +467,95 @@ export async function syncSlack({
     const auth   = await slack.auth.test()
     const userId = auth.user_id
     const oldest = String((Date.now() / 1000) - lookbackHours * 3600)
-    const processedSet = new Set(processedIds)
+
+    // ── processedIds: only keep keys within the lookback window + 1 day buffer.
+    // slice(-2000) was wrong — irrelevant channel messages filled the cap and
+    // pushed out DM keys, causing them to be re-classified as duplicate tasks.
+    const cutoff = (Date.now() / 1000) - (lookbackHours + 24) * 3600
+    const processedSet = new Set(
+      processedIds.filter(key => {
+        const ts = parseFloat(key.split(':').pop())
+        return !isNaN(ts) && ts >= cutoff
+      })
+    )
+    console.log(`[sync] processedSet: ${processedSet.size} live keys (trimmed from ${processedIds.length})`)
 
     // ── Step 1: Check resolutions for existing pending Slack tasks ──
     const { resolvedIds, updatedTasks } = await checkResolutions(slack, userId, pendingSlackTasks)
+    if (resolvedIds.length) console.log(`[sync] resolved ${resolvedIds.length} tasks`)
 
     // ── Step 2: Build conversation units for new messages ──
     const units = await buildConversationUnits(slack, userId, oldest, processedSet)
+    console.log(`[sync] ${units.length} conversation units to classify`)
 
     if (units.length === 0) {
-      return { todos: [], resolvedIds, updatedTasks, processedIds: [...processedSet].slice(-2000) }
+      return { todos: [], resolvedIds, updatedTasks, processedIds: [...processedSet] }
     }
 
-    // ── Step 3: Classify in batches of 20 units ──
+    // ── Step 3: Classify in batches — per-batch errors don't abort the whole sync ──
     const BATCH = 20
     const todos = []
 
     for (let i = 0; i < units.length; i += BATCH) {
-      const batch     = units.slice(i, i + BATCH)
-      const unitBlock = formatUnitsForAI(batch)
+      const batch = units.slice(i, i + BATCH)
+      try {
+        const unitBlock = formatUnitsForAI(batch)
 
-      const raw = await classify({ provider, claudeApiKey, groqApiKey, unitBlock })
-      let actionables = []
-      try { actionables = JSON.parse(raw) } catch { continue }
+        // Attempt LLM call with one retry on failure
+        let raw
+        try {
+          raw = await classify({ provider, claudeApiKey, groqApiKey, unitBlock })
+        } catch (err) {
+          console.warn(`[sync] LLM failed (batch ${i}), retrying in 3s:`, err.message)
+          await sleep(3000)
+          raw = await classify({ provider, claudeApiKey, groqApiKey, unitBlock })
+        }
 
-      for (const a of actionables) {
-        const unit = batch[a.unitIdx]
-        if (!unit) continue
+        let actionables = []
+        try {
+          actionables = JSON.parse(raw)
+        } catch {
+          console.warn(`[sync] JSON parse failed for batch ${i}, raw:`, raw?.slice(0, 200))
+        }
 
-        // Mark all keys in this unit as processed
-        for (const key of unit.keys) processedSet.add(key)
+        for (const a of actionables) {
+          const unit = batch[a.unitIdx]
+          if (!unit) continue
+          if (!a.pendingOnMe) continue
 
-        if (!a.pendingOnMe) continue // skip if AI determined it's not pending on user
+          todos.push({
+            id:               Date.now() + Math.random(),
+            text:             a.action,
+            context:          a.context || '',
+            from:             a.from || '',
+            type:             ['task', 'reply', 'fyi', 'deadline'].includes(a.type) ? a.type : 'task',
+            done:             false,
+            priority:         ['high', 'medium', 'low'].includes(a.priority) ? a.priority : 'medium',
+            source:           'slack',
+            slackChannel:     unit.channelId,
+            slackChannelName: unit.channelName,
+            slackThreadTs:    unit.threadTs,
+            slackLatestTs:    unit.latestTs,
+          })
+        }
 
-        todos.push({
-          id:             Date.now() + Math.random(),
-          text:           a.action,
-          context:        a.context || '',
-          from:           a.from || '',
-          type:           ['task', 'reply', 'fyi', 'deadline'].includes(a.type) ? a.type : 'task',
-          done:           false,
-          priority:       ['high', 'medium', 'low'].includes(a.priority) ? a.priority : 'medium',
-          source:         'slack',
-          slackChannel:   unit.channelId,
-          slackChannelName: unit.channelName,
-          slackThreadTs:  unit.threadTs,
-          slackLatestTs:  unit.latestTs,
-        })
+        console.log(`[sync] batch ${i}: ${actionables.length} actionable(s), ${todos.length} total so far`)
+      } catch (err) {
+        // Batch failed after retry — don't mark keys processed so they retry next sync
+        console.error(`[sync] batch ${i} failed permanently, will retry next sync:`, err.message)
+        continue
       }
 
-      // Mark remaining unprocessed keys (non-actionable) as processed
+      // Mark all keys in this batch as processed (success path)
       for (const unit of batch) {
         for (const key of unit.keys) processedSet.add(key)
       }
     }
 
-    return { todos, resolvedIds, updatedTasks, processedIds: [...processedSet].slice(-2000) }
+    console.log(`[sync] done — ${todos.length} new task(s)`)
+    return { todos, resolvedIds, updatedTasks, processedIds: [...processedSet] }
   } catch (err) {
+    console.error('[sync] fatal error:', err.message)
     return { todos: [], resolvedIds: [], updatedTasks: [], processedIds, error: err.message }
   }
 }

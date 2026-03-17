@@ -115,10 +115,14 @@ async function runSync() {
 
     saveTodos(updatedTodos)
 
+    const syncedOk = !result.error
+    if (result.error) console.error('[sync] returned error:', result.error)
     saveSettings({
       ...settings,
       processedIds:  result.processedIds,
-      lastSyncedAt:  Date.now(),
+      // Only advance lastSyncedAt on success — failed syncs must not suppress
+      // the next startup "sync if overdue" check
+      lastSyncedAt:  syncedOk ? Date.now() : settings.lastSyncedAt,
       lastSyncError: result.error || null,
       lastSyncAdded: result.todos.length,
     })
