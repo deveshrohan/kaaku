@@ -13,6 +13,9 @@ contextBridge.exposeInMainWorld('wallE', {
   diagnoseSlack:    ()   => ipcRenderer.invoke('slack:diagnose'),
   clearProcessedIds:    ()           => ipcRenderer.invoke('slack:clear-processed'),
   respondPermission:    (id, action) => ipcRenderer.invoke('permission:respond', { id, action }),
+  gmailConnect:    ()  => ipcRenderer.invoke('gmail:connect'),
+  gmailDisconnect: ()  => ipcRenderer.invoke('gmail:disconnect'),
+  gmailSync:       ()  => ipcRenderer.invoke('gmail:sync'),
   onTodosPushed: (cb) => {
     const handler = (_, todos) => cb(todos)
     ipcRenderer.on('todos:pushed', handler)

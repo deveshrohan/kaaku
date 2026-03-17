@@ -7,3 +7,4 @@ index.js
 .DS_Store
 *.local
 .claude/
+src/main/google-creds.js

@@ -17,13 +17,6 @@ const LOOKBACKS = [
 // ── Connection cards config ────────────────────────────────────────
 const COMING_SOON = [
   {
-    id: 'gmail',
-    icon: '✉️',
-    name: 'Gmail',
-    desc: 'Starred emails, action requests, calendar invites',
-    color: '#EA4335',
-  },
-  {
     id: 'github',
     icon: '⬡',
     name: 'GitHub',
@@ -45,6 +38,129 @@ const COMING_SOON = [
     color: '#ffffff',
   },
 ]
+
+// ── Gmail SVG icon ────────────────────────────────────────────────
+function GmailIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none">
+      <path d="M20 4H4C2.9 4 2 4.9 2 6v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2z" fill="#fff" fillOpacity="0"/>
+      <path d="M20 4H4L12 13l8-9z" fill="#EA4335"/>
+      <path d="M2 6l10 7 10-7v12H2V6z" fill="#fff" fillOpacity="0"/>
+      <path d="M4 4h16l-8 9L4 4z" fill="#EA4335"/>
+      <path d="M2 6v12l6-6L2 6z" fill="#C5221F"/>
+      <path d="M22 6v12l-6-6 6-6z" fill="#C5221F"/>
+      <path d="M2 18l6-6h8l6 6H2z" fill="#fff" fillOpacity="0"/>
+      <path d="M20 18H4l6-6h4l6 6z" fill="#FBBC04"/>
+    </svg>
+  )
+}
+
+// ── Google G logo ──────────────────────────────────────────────────
+function GoogleGIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16">
+      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+    </svg>
+  )
+}
+
+// ── Gmail Connection Card ──────────────────────────────────────────
+function GmailCard({ cfg }) {
+  const [connecting, setConnecting] = useState(false)
+  const [syncing,    setSyncing]    = useState(false)
+  const [status,     setStatus]     = useState('')
+  const [local,      setLocal]      = useState(null)   // optimistic UI updates
+
+  const connected  = local?.connected  ?? cfg.gmailConnected
+  const email      = local?.email      ?? cfg.gmailEmail
+  const lastSynced = local?.lastSyncedAt ?? cfg.gmailLastSyncedAt
+
+  const lastSyncText = lastSynced
+    ? `Synced ${Math.round((Date.now() - lastSynced) / 60000)}m ago`
+    : 'Never synced'
+
+  function flash(msg) { setStatus(msg); setTimeout(() => setStatus(''), 4000) }
+
+  async function connect() {
+    setConnecting(true)
+    setStatus('Opening Google sign-in…')
+    try {
+      const result = await window.wallE?.gmailConnect()
+      if (result?.error) flash(`Error: ${result.error.slice(0, 70)}`)
+      else if (result?.email) { setLocal({ connected: true, email: result.email, lastSyncedAt: null }); flash('Connected ✓') }
+      else flash('No response — check that the app restarted after the last code change')
+    } catch (err) {
+      flash(`Error: ${err.message?.slice(0, 70) || 'Unknown error'}`)
+    } finally {
+      setConnecting(false)
+    }
+  }
+
+  async function disconnect() {
+    await window.wallE?.gmailDisconnect()
+    setLocal({ connected: false, email: '', lastSyncedAt: null })
+    setStatus('')
+  }
+
+  async function syncNow() {
+    setSyncing(true); setStatus('Syncing…')
+    const result = await window.wallE?.gmailSync()
+    setSyncing(false)
+    if (result?.error) flash(`Error: ${result.error.slice(0, 60)}`)
+    else flash(result?.added ? `✓ ${result.added} task${result.added !== 1 ? 's' : ''} added` : '✓ Nothing new')
+    setLocal(prev => ({ ...prev, lastSyncedAt: Date.now() }))
+  }
+
+  return (
+    <div className={`conn-card${connected ? ' connected' : ''}`}>
+      <div className="conn-card-top" style={{ cursor: 'default' }}>
+        <div className="conn-icon-wrap" style={{ background: 'rgba(234,67,53,0.12)', borderColor: 'rgba(234,67,53,0.28)' }}>
+          <GmailIcon />
+        </div>
+        <div className="conn-info">
+          <div className="conn-name">Gmail</div>
+          <div className="conn-sub">
+            {connected
+              ? <><span className="conn-dot active" />{email || 'Connected'} — {lastSyncText}</>
+              : <><span className="conn-dot" />Not connected</>
+            }
+          </div>
+        </div>
+      </div>
+
+      <div className="conn-expand-inner" style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
+        {!connected && !connecting && (
+          <button className="google-signin-btn" onClick={connect}>
+            <GoogleGIcon />
+            Sign in with Google
+          </button>
+        )}
+        {connecting && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <p className="conn-hint" style={{ color: 'rgba(255,255,255,0.5)', padding: 0 }}>
+              ⏳ Waiting for Google sign-in in your browser…
+            </p>
+            <button className="settings-diag-btn" onClick={() => { setConnecting(false); setStatus('') }}>
+              Cancel
+            </button>
+          </div>
+        )}
+        {connected && (
+          <div className="conn-actions">
+            <button className="settings-sync-btn" onClick={syncNow} disabled={syncing}>
+              {syncing ? '…' : '⟳'} Sync
+            </button>
+            <button className="settings-diag-btn" onClick={disconnect}>Disconnect</button>
+          </div>
+        )}
+        {status && <div className="settings-status">{status}</div>}
+      </div>
+    </div>
+  )
+}
 
 // ── Slack Connection Card ──────────────────────────────────────────
 function SlackCard({ cfg, set, onSave, onSync, onClearSync, onDiagnose, syncing, diagnosing, dirty, status, diagSteps }) {
@@ -196,6 +312,8 @@ export default function SettingsPanel({ onClose }) {
     slackToken: '', slackUserToken: '', claudeApiKey: '', groqApiKey: '',
     llmProvider: 'groq', syncIntervalMinutes: 30, lookbackHours: 24,
     lastSyncedAt: null, lastSyncError: null, lastSyncAdded: 0,
+    gmailConnected: false, gmailEmail: '',
+    gmailLastSyncedAt: null, gmailLastSyncError: null,
   })
   const [syncing,    setSyncing]    = useState(false)
   const [status,     setStatus]     = useState('')
@@ -309,6 +427,7 @@ export default function SettingsPanel({ onClose }) {
               status={status}
               diagSteps={diagSteps}
             />
+            <GmailCard cfg={cfg} />
             {COMING_SOON.map(c => (
               <ComingSoonCard key={c.id} {...c} />
             ))}

@@ -623,6 +623,55 @@ body {
   text-align: center; line-height: 1.5; padding: 2px 4px;
 }
 
+/* ── Google sign-in button ───────────────────────────────────────── */
+.google-signin-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; padding: 9px 14px;
+  background: #fff; border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 9px; cursor: pointer;
+  font-size: 12px; font-weight: 600; font-family: inherit;
+  color: rgba(0,0,0,0.72);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.22);
+  transition: box-shadow 0.15s, background 0.15s;
+}
+.google-signin-btn:hover:not(:disabled) {
+  background: #f8f8f8;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+}
+.google-signin-btn:disabled {
+  opacity: 0.38; cursor: default;
+}
+
+/* ── Developer Setup section ─────────────────────────────────────── */
+.dev-setup-section {
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.dev-setup-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; padding: 9px 12px;
+  background: rgba(255,255,255,0.03); border: none; cursor: pointer;
+  font-family: inherit;
+}
+.dev-setup-toggle-label {
+  font-size: 10px; font-weight: 700; color: rgba(255,255,255,0.3);
+  text-transform: uppercase; letter-spacing: 0.07em;
+}
+.dev-setup-toggle-chevron {
+  font-size: 14px; color: rgba(255,255,255,0.2);
+}
+.dev-setup-body {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 0 12px 12px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 10px;
+}
+.dev-setup-hint {
+  font-size: 10px; color: rgba(255,255,255,0.3); line-height: 1.55;
+}
+.dev-setup-hint strong { color: rgba(255,255,255,0.45); font-weight: 600; }
+
 /* ═══════════════════════════════════════════════════════════════════
    NOTIFICATION BUBBLE
 ═══════════════════════════════════════════════════════════════════ */

@@ -4,6 +4,7 @@ import fs from 'fs'
 import http from 'http'
 import AutoLaunch from 'electron-auto-launch'
 import { syncSlack, diagnoseSlack } from './slack.js'
+import { connectGmail, syncGmail } from './gmail.js'
 
 export const SOCKET_PATH = '/tmp/kaaku.sock'
 
@@ -47,6 +48,12 @@ const DEFAULT_SETTINGS = {
   lastSyncedAt: null,
   lastSyncError: null,
   lastSyncAdded: 0,
+  // Gmail
+  gmailTokens:        null,
+  gmailEmail:         '',
+  gmailProcessedIds:  [],
+  gmailLastSyncedAt:  null,
+  gmailLastSyncError: null,
 }
 
 function loadSettings() {
@@ -66,66 +73,98 @@ function saveSettings(s) {
 async function runSync() {
   if (syncLocked) { console.log('Sync already in progress, skipping'); return }
   syncLocked = true
-  const settings = loadSettings()
-  const hasToken  = settings.slackUserToken || settings.slackToken
-  const hasApiKey = settings.groqApiKey || settings.claudeApiKey
-  if (!hasToken || !hasApiKey) { syncLocked = false; return }
+  const settings  = loadSettings()
+  const hasSlack  = !!(settings.slackUserToken || settings.slackToken)
+  const hasApiKey = !!(settings.groqApiKey || settings.claudeApiKey)
+  const hasGmail  = !!(settings.gmailTokens?.refresh_token && settings.gmailClientId && settings.gmailClientSecret)
+
+  if ((!hasSlack && !hasGmail) || !hasApiKey) { syncLocked = false; return }
 
   try {
-    // Pass existing unresolved Slack tasks so resolution can be checked
-    const allTodos          = loadTodos()
-    const pendingSlackTasks = allTodos.filter(t => !t.done && t.source === 'slack' && t.slackChannel)
+    let updatedTodos  = loadTodos()
+    let settingsUpdate = {}
 
-    const result = await syncSlack({
-      slackToken:       settings.slackToken,
-      slackUserToken:   settings.slackUserToken,
-      claudeApiKey:     settings.claudeApiKey,
-      groqApiKey:       settings.groqApiKey,
-      provider:         settings.llmProvider,
-      processedIds:     settings.processedIds,
-      lookbackHours:    settings.lookbackHours,
-      pendingSlackTasks,
-    })
+    // ── Slack ────────────────────────────────────────────────────
+    if (hasSlack) {
+      const pendingSlackTasks = updatedTodos.filter(t => !t.done && t.source === 'slack' && t.slackChannel)
+      try {
+        const result = await syncSlack({
+          slackToken:       settings.slackToken,
+          slackUserToken:   settings.slackUserToken,
+          claudeApiKey:     settings.claudeApiKey,
+          groqApiKey:       settings.groqApiKey,
+          provider:         settings.llmProvider,
+          processedIds:     settings.processedIds,
+          lookbackHours:    settings.lookbackHours,
+          pendingSlackTasks,
+        })
 
-    let updatedTodos = allTodos
+        if (result.resolvedIds?.length > 0) {
+          updatedTodos = updatedTodos.map(t =>
+            result.resolvedIds.includes(t.id) ? { ...t, done: true } : t
+          )
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            try { mainWindow.webContents.send('todos:resolved', result.resolvedIds) } catch {}
+          }
+        }
+        if (result.updatedTasks?.length > 0) {
+          const updatedMap = new Map(result.updatedTasks.map(t => [t.id, t]))
+          updatedTodos = updatedTodos.map(t => updatedMap.has(t.id) ? updatedMap.get(t.id) : t)
+        }
+        if (result.todos.length > 0) {
+          updatedTodos = [...updatedTodos, ...result.todos]
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            try { mainWindow.webContents.send('todos:pushed', result.todos) } catch {}
+          }
+        }
 
-    // Mark resolved tasks as done
-    if (result.resolvedIds?.length > 0) {
-      updatedTodos = updatedTodos.map(t =>
-        result.resolvedIds.includes(t.id) ? { ...t, done: true } : t
-      )
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        try { mainWindow.webContents.send('todos:resolved', result.resolvedIds) } catch {}
+        const syncedOk = !result.error
+        if (result.error) console.error('[sync] Slack error:', result.error)
+        settingsUpdate = {
+          ...settingsUpdate,
+          processedIds:  result.processedIds,
+          lastSyncedAt:  syncedOk ? Date.now() : settings.lastSyncedAt,
+          lastSyncError: result.error || null,
+          lastSyncAdded: result.todos.length,
+        }
+      } catch (err) {
+        console.error('[sync] Slack sync threw:', err.message)
+        settingsUpdate = { ...settingsUpdate, lastSyncError: err.message }
       }
     }
 
-    // Update latestTs on tasks that had new activity but aren't resolved yet
-    if (result.updatedTasks?.length > 0) {
-      const updatedMap = new Map(result.updatedTasks.map(t => [t.id, t]))
-      updatedTodos = updatedTodos.map(t => updatedMap.has(t.id) ? updatedMap.get(t.id) : t)
-    }
-
-    // Add new todos
-    if (result.todos.length > 0) {
-      updatedTodos = [...updatedTodos, ...result.todos]
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        try { mainWindow.webContents.send('todos:pushed', result.todos) } catch {}
+    // ── Gmail ────────────────────────────────────────────────────
+    if (hasGmail) {
+      try {
+        const result = await syncGmail({
+          tokens:        settings.gmailTokens,
+          lookbackHours: settings.lookbackHours,
+          claudeApiKey:  settings.claudeApiKey,
+          groqApiKey:    settings.groqApiKey,
+          provider:      settings.llmProvider,
+          processedIds:  settings.gmailProcessedIds || [],
+        })
+        if (result.todos.length > 0) {
+          updatedTodos = [...updatedTodos, ...result.todos]
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            try { mainWindow.webContents.send('todos:pushed', result.todos) } catch {}
+          }
+        }
+        settingsUpdate = {
+          ...settingsUpdate,
+          gmailTokens:        result.tokens,
+          gmailProcessedIds:  result.processedIds,
+          gmailLastSyncedAt:  Date.now(),
+          gmailLastSyncError: null,
+        }
+      } catch (err) {
+        console.error('[sync] Gmail sync threw:', err.message)
+        settingsUpdate = { ...settingsUpdate, gmailLastSyncError: err.message }
       }
     }
 
     saveTodos(updatedTodos)
-
-    const syncedOk = !result.error
-    if (result.error) console.error('[sync] returned error:', result.error)
-    saveSettings({
-      ...settings,
-      processedIds:  result.processedIds,
-      // Only advance lastSyncedAt on success — failed syncs must not suppress
-      // the next startup "sync if overdue" check
-      lastSyncedAt:  syncedOk ? Date.now() : settings.lastSyncedAt,
-      lastSyncError: result.error || null,
-      lastSyncAdded: result.todos.length,
-    })
+    saveSettings({ ...settings, ...settingsUpdate })
   } finally {
     syncLocked = false
   }
@@ -326,7 +365,7 @@ function createWindow() {
 
   ipcMain.handle('settings:load', () => {
     const s = loadSettings()
-    // Return everything except processedIds (too large for IPC)
+    // Return everything except processedIds and gmailTokens (sensitive / too large)
     return {
       slackToken:          s.slackToken,
       slackUserToken:      s.slackUserToken,
@@ -338,6 +377,11 @@ function createWindow() {
       lastSyncedAt:        s.lastSyncedAt,
       lastSyncError:       s.lastSyncError,
       lastSyncAdded:       s.lastSyncAdded,
+      // Gmail — never send tokens to renderer
+      gmailConnected:      !!(s.gmailTokens?.refresh_token),
+      gmailEmail:          s.gmailEmail,
+      gmailLastSyncedAt:   s.gmailLastSyncedAt,
+      gmailLastSyncError:  s.gmailLastSyncError,
     }
   })
 
@@ -385,6 +429,59 @@ function createWindow() {
       provider:       s.llmProvider,
       lookbackHours:  s.lookbackHours,
     })
+  })
+
+  // ── Gmail IPC ──────────────────────────────────────────────────
+  ipcMain.handle('gmail:connect', async () => {
+    console.log('[ipc] gmail:connect called')
+    try {
+      const { tokens, email } = await connectGmail()
+      saveSettings({ ...loadSettings(), gmailTokens: tokens, gmailEmail: email })
+      console.log('[ipc] gmail:connect success, email:', email)
+      return { email }
+    } catch (err) {
+      console.error('[ipc] gmail:connect error:', err.message)
+      return { error: err.message }
+    }
+  })
+
+  ipcMain.handle('gmail:disconnect', () => {
+    const s = loadSettings()
+    saveSettings({ ...s, gmailTokens: null, gmailEmail: '', gmailProcessedIds: [] })
+    return true
+  })
+
+  ipcMain.handle('gmail:sync', async () => {
+    const s = loadSettings()
+    if (!s.gmailTokens) return { error: 'Gmail not connected' }
+    try {
+      const result = await syncGmail({
+        tokens:        s.gmailTokens,
+        lookbackHours: s.lookbackHours,
+        claudeApiKey:  s.claudeApiKey,
+        groqApiKey:    s.groqApiKey,
+        provider:      s.llmProvider,
+        processedIds:  s.gmailProcessedIds || [],
+      })
+      const allTodos = loadTodos()
+      if (result.todos.length > 0) {
+        saveTodos([...allTodos, ...result.todos])
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          try { mainWindow.webContents.send('todos:pushed', result.todos) } catch {}
+        }
+      }
+      saveSettings({
+        ...loadSettings(),
+        gmailTokens:        result.tokens,
+        gmailProcessedIds:  result.processedIds,
+        gmailLastSyncedAt:  Date.now(),
+        gmailLastSyncError: null,
+      })
+      return { added: result.todos.length }
+    } catch (err) {
+      saveSettings({ ...loadSettings(), gmailLastSyncError: err.message })
+      return { error: err.message }
+    }
   })
 }
 
