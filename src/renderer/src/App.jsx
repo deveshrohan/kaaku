@@ -1,10 +1,19 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
-import { Canvas } from '@react-three/fiber'
+import { Canvas, useThree } from '@react-three/fiber'
 import { useFrame } from '@react-three/fiber'
 import { AnimatePresence, motion } from 'framer-motion'
 import TodoPanel from './components/TodoPanel'
 import SettingsPanel from './components/SettingsPanel'
 import NotificationBubble from './components/NotificationBubble'
+
+// ── Force truly transparent canvas background ────────────────────
+// onCreated gets overridden by R3F's internal setup — use useThree instead
+function TransparentBg() {
+  const { gl, scene } = useThree()
+  gl.setClearColor(0x000000, 0)
+  scene.background = null
+  return null
+}
 
 // ── Manual rotation group (drag-to-rotate) ───────────────────────
 function RotationGroup({ manualRotRef, children }) {
@@ -299,14 +308,11 @@ export default function App() {
           <div className="char-ground-shadow" />
           <Canvas
             camera={{ position: [0, 0.6, 5.8], fov: 38 }}
-            onCreated={s => {
-              s.camera.lookAt(0, 0.75, 0)
-              s.camera.updateProjectionMatrix()
-              s.gl.setClearColor(0x000000, 0)   // fully transparent — no black fill behind model
-            }}
+            onCreated={s => { s.camera.lookAt(0, 0.75, 0); s.camera.updateProjectionMatrix() }}
             gl={{ alpha: true, antialias: true }}
             style={{ background: 'transparent' }}
           >
+            <TransparentBg />
             {/* Better lighting for higher fidelity */}
             <hemisphereLight args={['#B0CCE8', '#7A6040', 0.55]} />
             <ambientLight intensity={0.35} />
