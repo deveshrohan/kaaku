@@ -296,9 +296,14 @@ export default function App() {
           {pendingCount > 0 && !showTodo && (
             <div className="task-badge">{pendingCount}</div>
           )}
+          <div className="char-ground-shadow" />
           <Canvas
             camera={{ position: [0, 0.6, 5.8], fov: 38 }}
-            onCreated={s => { s.camera.lookAt(0, 0.75, 0); s.camera.updateProjectionMatrix() }}
+            onCreated={s => {
+              s.camera.lookAt(0, 0.75, 0)
+              s.camera.updateProjectionMatrix()
+              s.gl.setClearColor(0x000000, 0)   // fully transparent — no black fill behind model
+            }}
             gl={{ alpha: true, antialias: true }}
             style={{ background: 'transparent' }}
           >
