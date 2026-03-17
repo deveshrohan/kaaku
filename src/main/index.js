@@ -13,7 +13,8 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) { app.quit(); process.exit(0) }
 
 let mainWindow
-let syncTimer = null
+let syncTimer  = null
+let syncLocked = false   // prevent concurrent syncs
 
 const TODOS_FILE    = join(app.getPath('userData'), 'todos.json')
 const SETTINGS_FILE = join(app.getPath('userData'), 'settings.json')
@@ -63,61 +64,67 @@ function saveSettings(s) {
 
 // ── Sync ──────────────────────────────────────────────────────────
 async function runSync() {
+  if (syncLocked) { console.log('Sync already in progress, skipping'); return }
+  syncLocked = true
   const settings = loadSettings()
   const hasToken  = settings.slackUserToken || settings.slackToken
   const hasApiKey = settings.groqApiKey || settings.claudeApiKey
-  if (!hasToken || !hasApiKey) return
+  if (!hasToken || !hasApiKey) { syncLocked = false; return }
 
-  // Pass existing unresolved Slack tasks so resolution can be checked
-  const allTodos        = loadTodos()
-  const pendingSlackTasks = allTodos.filter(t => !t.done && t.source === 'slack' && t.slackChannel)
+  try {
+    // Pass existing unresolved Slack tasks so resolution can be checked
+    const allTodos          = loadTodos()
+    const pendingSlackTasks = allTodos.filter(t => !t.done && t.source === 'slack' && t.slackChannel)
 
-  const result = await syncSlack({
-    slackToken:       settings.slackToken,
-    slackUserToken:   settings.slackUserToken,
-    claudeApiKey:     settings.claudeApiKey,
-    groqApiKey:       settings.groqApiKey,
-    provider:         settings.llmProvider,
-    processedIds:     settings.processedIds,
-    lookbackHours:    settings.lookbackHours,
-    pendingSlackTasks,
-  })
+    const result = await syncSlack({
+      slackToken:       settings.slackToken,
+      slackUserToken:   settings.slackUserToken,
+      claudeApiKey:     settings.claudeApiKey,
+      groqApiKey:       settings.groqApiKey,
+      provider:         settings.llmProvider,
+      processedIds:     settings.processedIds,
+      lookbackHours:    settings.lookbackHours,
+      pendingSlackTasks,
+    })
 
-  let updatedTodos = allTodos
+    let updatedTodos = allTodos
 
-  // Mark resolved tasks as done
-  if (result.resolvedIds?.length > 0) {
-    updatedTodos = updatedTodos.map(t =>
-      result.resolvedIds.includes(t.id) ? { ...t, done: true } : t
-    )
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      try { mainWindow.webContents.send('todos:resolved', result.resolvedIds) } catch {}
+    // Mark resolved tasks as done
+    if (result.resolvedIds?.length > 0) {
+      updatedTodos = updatedTodos.map(t =>
+        result.resolvedIds.includes(t.id) ? { ...t, done: true } : t
+      )
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        try { mainWindow.webContents.send('todos:resolved', result.resolvedIds) } catch {}
+      }
     }
-  }
 
-  // Update latestTs on tasks that had new activity but aren't resolved yet
-  if (result.updatedTasks?.length > 0) {
-    const updatedMap = new Map(result.updatedTasks.map(t => [t.id, t]))
-    updatedTodos = updatedTodos.map(t => updatedMap.has(t.id) ? updatedMap.get(t.id) : t)
-  }
-
-  // Add new todos
-  if (result.todos.length > 0) {
-    updatedTodos = [...updatedTodos, ...result.todos]
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      try { mainWindow.webContents.send('todos:pushed', result.todos) } catch {}
+    // Update latestTs on tasks that had new activity but aren't resolved yet
+    if (result.updatedTasks?.length > 0) {
+      const updatedMap = new Map(result.updatedTasks.map(t => [t.id, t]))
+      updatedTodos = updatedTodos.map(t => updatedMap.has(t.id) ? updatedMap.get(t.id) : t)
     }
+
+    // Add new todos
+    if (result.todos.length > 0) {
+      updatedTodos = [...updatedTodos, ...result.todos]
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        try { mainWindow.webContents.send('todos:pushed', result.todos) } catch {}
+      }
+    }
+
+    saveTodos(updatedTodos)
+
+    saveSettings({
+      ...settings,
+      processedIds:  result.processedIds,
+      lastSyncedAt:  Date.now(),
+      lastSyncError: result.error || null,
+      lastSyncAdded: result.todos.length,
+    })
+  } finally {
+    syncLocked = false
   }
-
-  saveTodos(updatedTodos)
-
-  saveSettings({
-    ...settings,
-    processedIds:  result.processedIds,
-    lastSyncedAt:  Date.now(),
-    lastSyncError: result.error || null,
-    lastSyncAdded: result.todos.length,
-  })
 }
 
 // ── Event server ──────────────────────────────────────────────────
@@ -382,6 +389,11 @@ app.whenReady().then(() => {
   const settings = loadSettings()
   if ((settings.slackUserToken || settings.slackToken) && (settings.groqApiKey || settings.claudeApiKey)) {
     startSyncTimer(settings.syncIntervalMinutes)
+    // Run immediately on startup if it has been longer than the interval since the last sync
+    const msSinceLastSync = Date.now() - (settings.lastSyncedAt || 0)
+    if (msSinceLastSync > settings.syncIntervalMinutes * 60 * 1000) {
+      runSync()
+    }
   }
 })
 

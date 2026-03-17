@@ -2,9 +2,13 @@ import { WebClient } from '@slack/web-api'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 
-const GROQ_BASE_URL = 'https://api.groq.com/openai/v1'
-const GROQ_MODEL    = 'llama-3.3-70b-versatile'
-const CLAUDE_MODEL  = 'claude-haiku-4-5-20251001'
+const GROQ_BASE_URL  = 'https://api.groq.com/openai/v1'
+const GROQ_MODEL     = 'llama-3.3-70b-versatile'
+const CLAUDE_MODEL   = 'claude-haiku-4-5-20251001'
+const CHANNEL_CAP    = 40    // max channels to scan per sync
+const API_DELAY_MS   = 300   // pause between conversations.history calls
+
+const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 const COMPLETION_EMOJIS = new Set([
   'white_check_mark', 'heavy_check_mark', 'ballot_box_with_check',
@@ -105,10 +109,13 @@ async function buildConversationUnits(slack, userId, oldest, processedSet) {
   // Bulk-populate name cache upfront so all message senders resolve correctly
   await populateNameCache(slack)
 
-  const channels = await fetchActiveChannels(slack, userId, oldest)
+  const allChannels = await fetchActiveChannels(slack, userId, oldest)
+  const channels    = allChannels.slice(0, CHANNEL_CAP)   // cap to avoid rate limits
+  console.log(`Slack sync: scanning ${channels.length} of ${allChannels.length} active channels`)
   const units = []
 
   for (const ch of channels) {
+    await sleep(API_DELAY_MS)   // be kind to Slack rate limits
     try {
       const hist = await slack.conversations.history({ channel: ch.id, oldest, limit: 50 })
       const msgs = (hist.messages || []).filter(m => !m.subtype && !m.bot_id)
@@ -163,6 +170,7 @@ async function buildConversationUnits(slack, userId, oldest, processedSet) {
           }
 
           if (msg.reply_count > 0 || inThread) {
+            await sleep(API_DELAY_MS)
             try {
               const thread = await slack.conversations.replies({
                 channel: ch.id, ts: msg.thread_ts || msg.ts, oldest, limit: 50,

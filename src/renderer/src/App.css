@@ -506,6 +506,93 @@ body {
 .provider-btn:first-child { border-right: 1px solid rgba(255,255,255,0.09); }
 .provider-btn.active { background: rgba(200,164,74,0.18); color: #C8A44A; }
 
+/* ── Settings tabs ──────────────────────────────────────────────── */
+.settings-tabs {
+  display: flex;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  padding: 0 12px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.settings-tab {
+  background: none; border: none;
+  color: rgba(255,255,255,0.35);
+  font-size: 11px; font-weight: 600;
+  padding: 9px 10px 8px;
+  cursor: pointer; font-family: inherit;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+.settings-tab:hover { color: rgba(255,255,255,0.65); }
+.settings-tab.active { color: #C8A44A; border-bottom-color: #C8A44A; }
+
+/* ── Connection cards ────────────────────────────────────────────── */
+.conn-list { display: flex; flex-direction: column; gap: 8px; }
+.pref-list { display: flex; flex-direction: column; gap: 13px; }
+
+.conn-card {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.conn-card.connected { border-color: rgba(52,199,89,0.22); }
+.conn-card.coming-soon { opacity: 0.55; }
+
+.conn-card-top {
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 12px;
+  cursor: pointer;
+}
+.conn-card.coming-soon .conn-card-top { cursor: default; }
+
+.conn-icon-wrap {
+  width: 36px; height: 36px; border-radius: 9px;
+  border: 1px solid transparent;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+
+.conn-info { flex: 1; min-width: 0; }
+.conn-name { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.88); }
+.conn-sub {
+  font-size: 10px; color: rgba(255,255,255,0.35);
+  margin-top: 2px; display: flex; align-items: center; gap: 5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.conn-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: rgba(255,255,255,0.18); flex-shrink: 0;
+}
+.conn-dot.active { background: #34C759; }
+
+.conn-chevron {
+  color: rgba(255,255,255,0.25); font-size: 16px; flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.conn-soon-badge {
+  font-size: 9px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 5px; padding: 2px 6px; flex-shrink: 0;
+}
+
+.conn-expand-inner {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 0 12px 12px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 12px;
+}
+.conn-actions { display: flex; gap: 6px; }
+.conn-hint {
+  font-size: 9px; color: rgba(255,255,255,0.2);
+  text-align: center; line-height: 1.5; padding: 2px 4px;
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    NOTIFICATION BUBBLE
 ═══════════════════════════════════════════════════════════════════ */
