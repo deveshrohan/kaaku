@@ -104,6 +104,22 @@ body {
   margin-bottom: 8px;
   flex: 1;
   min-height: 0;
+  position: relative;
+}
+
+/* Downward chevron — visually connects panel to character below */
+.panel-chevron {
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 14px;
+  height: 14px;
+  background: rgba(10, 10, 14, 0.98);
+  border-right: 1px solid rgba(255,255,255,0.10);
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+  pointer-events: none;
+  z-index: 5;
 }
 
 /* ═══════════════════════════════════════════════════════════════════

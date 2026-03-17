@@ -357,6 +357,10 @@ function createWindow() {
     return true
   })
 
+  ipcMain.on('ignore-mouse', (_, ignore) => {
+    mainWindow.setIgnoreMouseEvents(ignore, { forward: true })
+  })
+
   ipcMain.handle('permission:respond', (_, { id, action }) => {
     const pending = pendingPermissions.get(id)
     if (!pending) return false

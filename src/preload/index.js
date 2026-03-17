@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('wallE', {
   moveWindow:    (delta) => ipcRenderer.invoke('move-window', delta),
+  ignoreMouse:   (v)     => ipcRenderer.send('ignore-mouse', v),
   setPanelOpen:  (open)  => ipcRenderer.invoke('set-panel-open', open),
   setBubbleOpen: (open)  => ipcRenderer.invoke('set-bubble-open', open),
   loadTodos:     ()      => ipcRenderer.invoke('todos:load'),

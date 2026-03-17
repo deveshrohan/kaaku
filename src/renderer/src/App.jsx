@@ -89,6 +89,25 @@ export default function App() {
     return () => clearInterval(id)
   }, [isAuto])
 
+  // ── click-through for transparent areas ──────────────────────
+  // Transparent parts of the window pass mouse events to the desktop.
+  // Forwards mousemove even when ignoring so we can detect UI re-entry.
+  useEffect(() => {
+    let ignored = false
+    function onMouseMove(e) {
+      const el = document.elementFromPoint(e.clientX, e.clientY)
+      const overUI = el && el !== document.documentElement && el !== document.body
+      const shouldIgnore = !overUI
+      if (shouldIgnore !== ignored) {
+        ignored = shouldIgnore
+        window.wallE?.ignoreMouse(shouldIgnore)
+      }
+    }
+    window.wallE?.ignoreMouse(true)   // start click-through until mouse enters UI
+    window.addEventListener('mousemove', onMouseMove)
+    return () => window.removeEventListener('mousemove', onMouseMove)
+  }, [])
+
   // ── dismiss on click-outside (window blur) ───────────────────
   useEffect(() => {
     const onBlur = () => { if (showTodo) closePanel() }
@@ -275,6 +294,7 @@ export default function App() {
                 />
               )}
             </AnimatePresence>
+            <div className="panel-chevron" />
           </motion.div>
         )}
       </AnimatePresence>
