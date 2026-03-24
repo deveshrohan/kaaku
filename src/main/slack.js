@@ -253,13 +253,15 @@ async function classify({ provider, claudeApiKey, groqApiKey, unitBlock }) {
 Analyze these conversation units and identify what requires action from "you".
 
 RULES:
-- "you" = the user in the conversation
-- DMs and Group DMs are high priority by default
-- @mentions in channels are high priority
-- If "you" said "will check", "on it", "sure", "looking into it", "noted" → the task is STILL PENDING (acknowledged but not delivered)
-- If "you" said "done", "sent", "fixed", "raised ticket", "PR up", "deployed", "merged" → likely resolved, skip it
-- If "you" asked a question back → pending on them, lower priority
-- Only extract items where YOU need to act, or critical FYIs
+- "you" = the user in the conversation. Messages from "you" are messages YOU sent.
+- CRITICAL: If "you" asked or assigned something to someone else (e.g. "you: can you check X?", "you: please do Y"), that is NOT your task — it's pending on THEM. Set pendingOnMe=false or skip entirely.
+- Only extract items where SOMEONE ELSE is asking YOU to do something, or where YOU acknowledged a task but haven't delivered yet.
+- DMs where the other person asked you to do something = high priority
+- DMs where YOU asked them to do something = NOT your task, skip it
+- @mentions in channels where someone asks you = high priority
+- If "you" said "will check", "on it", "sure", "looking into it", "noted" → the task is STILL PENDING on you
+- If "you" said "done", "sent", "fixed", "raised ticket", "PR up", "deployed", "merged" → resolved, skip it
+- If "you" asked a question back → pending on them, skip it
 
 For each actionable unit output one JSON object:
 {
@@ -524,7 +526,7 @@ export async function syncSlack({
           if (!a.pendingOnMe) continue
 
           todos.push({
-            id:               Date.now() + Math.random(),
+            id:               crypto.randomUUID(),
             text:             a.action,
             context:          a.context || '',
             from:             a.from || '',
@@ -532,6 +534,7 @@ export async function syncSlack({
             done:             false,
             priority:         ['high', 'medium', 'low'].includes(a.priority) ? a.priority : 'medium',
             source:           'slack',
+            createdAt:        Date.now(),
             slackChannel:     unit.channelId,
             slackChannelName: unit.channelName,
             slackThreadTs:    unit.threadTs,
@@ -558,4 +561,18 @@ export async function syncSlack({
     console.error('[sync] fatal error:', err.message)
     return { todos: [], resolvedIds: [], updatedTasks: [], processedIds, error: err.message }
   }
+}
+
+// ── Post a message to Slack (used by agents) ─────────────────────────
+export async function postSlackMessage(token, channel, text, threadTs) {
+  if (!token) throw new Error('No Slack token')
+  if (!channel) throw new Error('Missing channel ID')
+  if (!text) throw new Error('Missing message text')
+
+  const slack = new WebClient(token)
+  const opts = { channel, text }
+  if (threadTs) opts.thread_ts = threadTs
+
+  const result = await slack.chat.postMessage(opts)
+  return { ok: result.ok, ts: result.ts, channel: result.channel }
 }

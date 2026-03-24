@@ -71,6 +71,7 @@ export async function refreshTokenIfNeeded(tokens) {
 // ── OAuth connect ──────────────────────────────────────────────────
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/userinfo.email',
 ].join(' ')
 
@@ -255,9 +256,10 @@ async function classifyEmails({ emails, provider, claudeApiKey, groqApiKey }) {
     const email = emails[item.index - 1]
     if (!email) return null
     return {
-      id:        Date.now() + Math.random(),
+      id:        crypto.randomUUID(),
       text:      String(item.task || '').slice(0, 120),
       done:      false,
+      createdAt: Date.now(),
       priority:  ['high', 'medium', 'low'].includes(item.priority) ? item.priority : 'medium',
       source:    'gmail',
       gmailId:   email.id,
@@ -308,4 +310,51 @@ export async function syncGmail({ tokens, lookbackHours = 24, claudeApiKey, groq
 
   console.log(`[gmail] sync done — ${todos.length} action items`)
   return { todos, processedIds: [...processedSet], tokens: freshTokens, error: null }
+}
+
+// ── Send an email via Gmail (used by agents) ────────────────────────
+export async function sendGmail(tokens, to, subject, body) {
+  if (!to) throw new Error('Missing recipient email')
+  if (!subject) throw new Error('Missing subject')
+
+  const freshTokens = await refreshTokenIfNeeded(tokens)
+  const token = freshTokens.access_token
+
+  // Build RFC 2822 message and base64url-encode it
+  const message = [
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    body || '',
+  ].join('\r\n')
+  const encoded = Buffer.from(message).toString('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+
+  return new Promise((resolve, reject) => {
+    const postBody = JSON.stringify({ raw: encoded })
+    const req = https.request({
+      hostname: 'gmail.googleapis.com',
+      path: '/gmail/v1/users/me/messages/send',
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postBody),
+      },
+    }, res => {
+      let raw = ''
+      res.on('data', d => (raw += d))
+      res.on('end', () => {
+        try {
+          const data = JSON.parse(raw)
+          if (data.error) reject(new Error(data.error.message || 'Gmail send failed'))
+          else resolve({ ok: true, messageId: data.id, threadId: data.threadId })
+        } catch { resolve({ ok: true }) }
+      })
+    })
+    req.on('error', reject)
+    req.write(postBody)
+    req.end()
+  })
 }

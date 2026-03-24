@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 const INTERVALS = [
-  { label: '15 min', value: 15  },
-  { label: '30 min', value: 30  },
-  { label: '1 hour', value: 60  },
+  { label: '5 min',   value: 5   },
+  { label: '15 min',  value: 15  },
+  { label: '30 min',  value: 30  },
+  { label: '1 hour',  value: 60  },
   { label: '4 hours', value: 240 },
 ]
 const LOOKBACKS = [
@@ -69,6 +70,7 @@ function GoogleGIcon() {
 
 // ── Gmail Connection Card ──────────────────────────────────────────
 function GmailCard({ cfg }) {
+  const [expanded, setExpanded]     = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [syncing,    setSyncing]    = useState(false)
   const [status,     setStatus]     = useState('')
@@ -116,7 +118,7 @@ function GmailCard({ cfg }) {
 
   return (
     <div className={`conn-card${connected ? ' connected' : ''}`}>
-      <div className="conn-card-top" style={{ cursor: 'default' }}>
+      <div className="conn-card-top" onClick={() => setExpanded(e => !e)}>
         <div className="conn-icon-wrap" style={{ background: 'rgba(234,67,53,0.12)', borderColor: 'rgba(234,67,53,0.28)' }}>
           <GmailIcon />
         </div>
@@ -129,35 +131,50 @@ function GmailCard({ cfg }) {
             }
           </div>
         </div>
+        <span className="conn-chevron">{expanded ? '▾' : '›'}</span>
       </div>
 
-      <div className="conn-expand-inner" style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
-        {!connected && !connecting && (
-          <button className="google-signin-btn" onClick={connect}>
-            <GoogleGIcon />
-            Sign in with Google
-          </button>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            className="conn-expand"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div className="conn-expand-inner">
+              <p className="conn-hint conn-hint-spaced">One-click sign-in. Kaaku reads your inbox to find tasks — never sends emails.</p>
+              {!connected && !connecting && (
+                <button className="google-signin-btn" onClick={connect}>
+                  <GoogleGIcon />
+                  Sign in with Google
+                </button>
+              )}
+              {connecting && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <p className="conn-hint" style={{ padding: 0 }}>
+                    ⏳ Waiting for Google sign-in in your browser…
+                  </p>
+                  <button className="settings-diag-btn" onClick={() => { setConnecting(false); setStatus('') }}>
+                    Cancel
+                  </button>
+                </div>
+              )}
+              {connected && (
+                <div className="conn-actions">
+                  <button className="settings-sync-btn" onClick={syncNow} disabled={syncing}>
+                    {syncing ? '…' : '⟳'} Sync
+                  </button>
+                  <button className="settings-diag-btn" onClick={disconnect}>Disconnect</button>
+                </div>
+              )}
+              {status && <div className="settings-status">{status}</div>}
+            </div>
+          </motion.div>
         )}
-        {connecting && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <p className="conn-hint" style={{ color: 'rgba(255,255,255,0.5)', padding: 0 }}>
-              ⏳ Waiting for Google sign-in in your browser…
-            </p>
-            <button className="settings-diag-btn" onClick={() => { setConnecting(false); setStatus('') }}>
-              Cancel
-            </button>
-          </div>
-        )}
-        {connected && (
-          <div className="conn-actions">
-            <button className="settings-sync-btn" onClick={syncNow} disabled={syncing}>
-              {syncing ? '…' : '⟳'} Sync
-            </button>
-            <button className="settings-diag-btn" onClick={disconnect}>Disconnect</button>
-          </div>
-        )}
-        {status && <div className="settings-status">{status}</div>}
-      </div>
+      </AnimatePresence>
     </div>
   )
 }
@@ -207,6 +224,7 @@ function SlackCard({ cfg, set, onSave, onSync, onClearSync, onDiagnose, syncing,
             style={{ overflow: 'hidden' }}
           >
             <div className="conn-expand-inner">
+              <p className="conn-hint conn-hint-spaced">Get your User Token at api.slack.com &gt; Your Apps &gt; OAuth &amp; Permissions</p>
               <div className="settings-field">
                 <label className="settings-label">
                   User Token <span className="settings-label-rec">★ recommended</span>
@@ -287,6 +305,109 @@ function SlackCard({ cfg, set, onSave, onSync, onClearSync, onDiagnose, syncing,
   )
 }
 
+// ── Integration connection card (Jira / Redash / GitHub) ────────────
+function IntegrationCard({ icon, iconColor, name, fields, cfg, set, testFn, onSave, dirty, verifiedKey, reloadSettings, hint }) {
+  const [expanded, setExpanded] = useState(false)
+  const [testing, setTesting]   = useState(false)
+  const [status, setStatus]     = useState('')
+  const [shows, setShows]       = useState({})
+
+  const configured = fields.every(f => cfg[f.key])
+  const verified = !!cfg[verifiedKey]
+
+  function flash(msg) { setStatus(msg); setTimeout(() => setStatus(''), 4000) }
+  function toggleShow(key) { setShows(prev => ({ ...prev, [key]: !prev[key] })) }
+
+  async function testConnection() {
+    if (!testFn) {
+      flash('Restart the app to enable connection tests')
+      return
+    }
+    // Always save first so credentials persist even if test fails
+    await onSave()
+    setTesting(true); setStatus('Testing...')
+    try {
+      const result = await testFn()
+      // Reload settings to pick up the verified flag persisted by main process
+      await reloadSettings()
+      if (result?.ok) flash(`Connected as ${result.user}`)
+      else flash(`Error: ${(result?.error || 'Unknown').slice(0, 60)}`)
+    } catch (err) {
+      flash(`Error: ${(err.message || 'Connection failed').slice(0, 60)}`)
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const statusLabel = verified
+    ? 'Connected'
+    : configured ? 'Not verified — click Test' : 'Not connected'
+
+  return (
+    <div className={`conn-card${verified ? ' connected' : ''}`}>
+      <div className="conn-card-top" onClick={() => setExpanded(e => !e)}>
+        <div className="conn-icon-wrap" style={{ background: `${iconColor}18`, borderColor: `${iconColor}30` }}>
+          <span style={{ fontSize: 18, color: iconColor }}>{icon}</span>
+        </div>
+        <div className="conn-info">
+          <div className="conn-name">{name}</div>
+          <div className="conn-sub">
+            {verified
+              ? <><span className="conn-dot active" />{statusLabel}</>
+              : <><span className="conn-dot" />{statusLabel}</>
+            }
+          </div>
+        </div>
+        <span className="conn-chevron">{expanded ? '▾' : '›'}</span>
+      </div>
+
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            className="conn-expand"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div className="conn-expand-inner">
+              {hint && <p className="conn-hint conn-hint-spaced">{hint}</p>}
+              {fields.map(f => (
+                <div key={f.key} className="settings-field">
+                  <label className="settings-label">{f.label}</label>
+                  <div className="settings-input-wrap">
+                    <input
+                      type={f.secret && !shows[f.key] ? 'password' : 'text'}
+                      className="settings-input"
+                      placeholder={f.placeholder}
+                      value={cfg[f.key] || ''}
+                      onChange={e => set(f.key, e.target.value)}
+                      spellCheck={false}
+                    />
+                    {f.secret && (
+                      <button className="peek-btn" onClick={() => toggleShow(f.key)}>
+                        {shows[f.key] ? '🙈' : '👁'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div className="conn-actions">
+                {dirty && <button className="settings-save-btn" onClick={onSave}>Save</button>}
+                <button className="settings-diag-btn" onClick={testConnection} disabled={testing || !configured}>
+                  {testing ? 'Testing...' : '🔍 Test'}
+                </button>
+              </div>
+              {status && <div className="settings-status">{status}</div>}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
 // ── Coming-soon card ───────────────────────────────────────────────
 function ComingSoonCard({ icon, name, desc, color }) {
   return (
@@ -306,7 +427,7 @@ function ComingSoonCard({ icon, name, desc, color }) {
 }
 
 // ── Main ───────────────────────────────────────────────────────────
-export default function SettingsPanel({ onClose }) {
+export default function SettingsPanel() {
   const [tab, setTab] = useState('connections')
   const [cfg, setCfg] = useState({
     slackToken: '', slackUserToken: '', claudeApiKey: '', groqApiKey: '',
@@ -314,6 +435,11 @@ export default function SettingsPanel({ onClose }) {
     lastSyncedAt: null, lastSyncError: null, lastSyncAdded: 0,
     gmailConnected: false, gmailEmail: '',
     gmailLastSyncedAt: null, gmailLastSyncError: null,
+    atlassianDomain: '', atlassianEmail: '', atlassianApiToken: '', jiraVerified: false,
+    redashUrl: '', redashApiKey: '', redashVerified: false,
+    githubToken: '', githubOrg: '', githubVerified: false,
+    agentProvider: 'gemini', geminiApiKey: '',
+    theme: 'auto',
   })
   const [syncing,    setSyncing]    = useState(false)
   const [status,     setStatus]     = useState('')
@@ -322,9 +448,15 @@ export default function SettingsPanel({ onClose }) {
   const [showKey,    setShowKey]    = useState(false)
   const [dirty,      setDirty]      = useState(false)
 
-  useEffect(() => {
-    window.wallE?.loadSettings().then(s => { if (s) setCfg(s) })
-  }, [])
+  async function reloadSettings() {
+    const s = await window.wallE?.loadSettings()
+    if (s) {
+      setCfg(s)
+      document.documentElement.setAttribute('data-theme', s.theme || 'auto')
+    }
+  }
+
+  useEffect(() => { reloadSettings() }, [])
 
   function set(key, val) {
     setCfg(prev => ({ ...prev, [key]: val }))
@@ -340,6 +472,16 @@ export default function SettingsPanel({ onClose }) {
       llmProvider:         cfg.llmProvider,
       syncIntervalMinutes: cfg.syncIntervalMinutes,
       lookbackHours:       cfg.lookbackHours,
+      atlassianDomain:     cfg.atlassianDomain,
+      atlassianEmail:      cfg.atlassianEmail,
+      atlassianApiToken:   cfg.atlassianApiToken,
+      redashUrl:           cfg.redashUrl,
+      redashApiKey:        cfg.redashApiKey,
+      githubToken:         cfg.githubToken,
+      githubOrg:           cfg.githubOrg,
+      agentProvider:       cfg.agentProvider,
+      geminiApiKey:        cfg.geminiApiKey,
+      theme:               cfg.theme,
     })
     setDirty(false)
     flash('Saved ✓')
@@ -379,17 +521,12 @@ export default function SettingsPanel({ onClose }) {
   const keyPlaceholder = isGroq ? 'gsk_…' : 'sk-ant-…'
 
   return (
-    <motion.div
+    <div
       className="settings-panel"
-      initial={{ y: 40, opacity: 0, scale: 0.95 }}
-      animate={{ y: 0, opacity: 1, scale: 1 }}
-      exit={{ y: 40, opacity: 0, scale: 0.95 }}
-      transition={{ type: 'spring', stiffness: 320, damping: 28 }}
     >
       {/* Header */}
       <div className="todo-header">
-        <span className="todo-title">⚙ Settings</span>
-        <button className="close-btn" onClick={onClose}>✕</button>
+        <span className="todo-title">Settings</span>
       </div>
 
       {/* Tabs */}
@@ -414,6 +551,16 @@ export default function SettingsPanel({ onClose }) {
         {/* ── Connections tab ─────────────────────────────────── */}
         {tab === 'connections' && (
           <div className="conn-list">
+            {(() => {
+              const n = [
+                !!(cfg.slackUserToken || cfg.slackToken),
+                !!cfg.gmailConnected,
+                !!cfg.jiraVerified,
+                !!cfg.redashVerified,
+                !!cfg.githubVerified,
+              ].filter(Boolean).length
+              return <div className="conn-summary">{n} of 5 connected</div>
+            })()}
             <SlackCard
               cfg={cfg}
               set={set}
@@ -428,11 +575,63 @@ export default function SettingsPanel({ onClose }) {
               diagSteps={diagSteps}
             />
             <GmailCard cfg={cfg} />
-            {COMING_SOON.map(c => (
+            <IntegrationCard
+              icon="▲"
+              iconColor="#1868DB"
+              name="Jira Cloud"
+              hint="Get your API token at id.atlassian.com > Manage Profile > Security > API Tokens"
+              fields={[
+                { key: 'atlassianDomain', label: 'Domain', placeholder: 'orgname.atlassian.net' },
+                { key: 'atlassianEmail', label: 'Email', placeholder: 'you@company.com' },
+                { key: 'atlassianApiToken', label: 'API Token', placeholder: 'ATATT3x...', secret: true },
+              ]}
+              cfg={cfg}
+              set={set}
+              testFn={window.wallE?.testJira}
+              onSave={save}
+              dirty={dirty}
+              verifiedKey="jiraVerified"
+              reloadSettings={reloadSettings}
+            />
+            <IntegrationCard
+              icon="◈"
+              iconColor="#FF6B35"
+              name="Redash"
+              hint="Find your API key in Redash > User Profile > API Key"
+              fields={[
+                { key: 'redashUrl', label: 'URL', placeholder: 'https://redash.company.com' },
+                { key: 'redashApiKey', label: 'API Key', placeholder: 'Your Redash API key', secret: true },
+              ]}
+              cfg={cfg}
+              set={set}
+              testFn={window.wallE?.testRedash}
+              onSave={save}
+              dirty={dirty}
+              verifiedKey="redashVerified"
+              reloadSettings={reloadSettings}
+            />
+            <IntegrationCard
+              icon="⬡"
+              iconColor="#7B68EE"
+              name="GitHub"
+              hint="Create a Personal Access Token at github.com/settings/tokens (needs: repo, read:org)"
+              fields={[
+                { key: 'githubToken', label: 'Personal Access Token', placeholder: 'ghp_...', secret: true },
+                { key: 'githubOrg', label: 'Default Org (optional)', placeholder: 'your-org' },
+              ]}
+              cfg={cfg}
+              set={set}
+              testFn={window.wallE?.testGithub}
+              onSave={save}
+              dirty={dirty}
+              verifiedKey="githubVerified"
+              reloadSettings={reloadSettings}
+            />
+            {COMING_SOON.filter(c => c.id !== 'github').map(c => (
               <ComingSoonCard key={c.id} {...c} />
             ))}
             <p className="conn-hint">
-              More integrations coming. Each connection is stored locally — your tokens never leave your machine.
+              All tokens are stored locally — they never leave your machine.
             </p>
           </div>
         )}
@@ -441,9 +640,28 @@ export default function SettingsPanel({ onClose }) {
         {tab === 'preferences' && (
           <div className="pref-list">
 
-            {/* AI Provider */}
+            {/* ── Theme ───────────────────────────────────────── */}
             <div className="settings-field">
-              <label className="settings-label">AI Provider</label>
+              <label className="settings-label">Theme</label>
+              <div className="provider-toggle">
+                <button
+                  className={`provider-btn${cfg.theme === 'auto' ? ' active' : ''}`}
+                  onClick={() => { set('theme', 'auto'); document.documentElement.setAttribute('data-theme', 'auto') }}
+                >Auto</button>
+                <button
+                  className={`provider-btn${cfg.theme === 'light' ? ' active' : ''}`}
+                  onClick={() => { set('theme', 'light'); document.documentElement.setAttribute('data-theme', 'light') }}
+                >Light</button>
+                <button
+                  className={`provider-btn${cfg.theme === 'dark' ? ' active' : ''}`}
+                  onClick={() => { set('theme', 'dark'); document.documentElement.setAttribute('data-theme', 'dark') }}
+                >Dark</button>
+              </div>
+            </div>
+
+            {/* ── AI Provider (summarization) ─────────────────── */}
+            <div className="settings-field">
+              <label className="settings-label">AI <span style={{ opacity: 0.4, fontSize: 9 }}>summarization</span></label>
               <div className="provider-toggle">
                 <button
                   className={`provider-btn${!isGroq ? ' active' : ''}`}
@@ -452,11 +670,11 @@ export default function SettingsPanel({ onClose }) {
                 <button
                   className={`provider-btn${isGroq ? ' active' : ''}`}
                   onClick={() => set('llmProvider', 'groq')}
-                >Groq</button>
+                >Groq <span style={{ opacity: 0.5, fontSize: 9 }}>free</span></button>
               </div>
             </div>
 
-            {/* API key */}
+            {/* AI API key */}
             <div className="settings-field">
               <label className="settings-label">{isGroq ? 'Groq' : 'Claude'} API Key</label>
               <div className="settings-input-wrap">
@@ -498,14 +716,138 @@ export default function SettingsPanel({ onClose }) {
               </div>
             </div>
 
+            {/* ── Agent Provider (delegated tasks) ────────────── */}
+            <div className="settings-divider" />
+            <div className="settings-field">
+              <label className="settings-label">Agent <span style={{ opacity: 0.4, fontSize: 9 }}>delegated tasks</span></label>
+              <div className="provider-toggle">
+                <button
+                  className={`provider-btn${cfg.agentProvider === 'groq' ? ' active' : ''}`}
+                  onClick={() => set('agentProvider', 'groq')}
+                >Groq <span style={{ opacity: 0.5, fontSize: 9 }}>free</span></button>
+                <button
+                  className={`provider-btn${cfg.agentProvider === 'claude' ? ' active' : ''}`}
+                  onClick={() => set('agentProvider', 'claude')}
+                >Claude</button>
+                <button
+                  className={`provider-btn${cfg.agentProvider === 'gemini' ? ' active' : ''}`}
+                  onClick={() => set('agentProvider', 'gemini')}
+                >Gemini</button>
+                <button
+                  className={`provider-btn${cfg.agentProvider === 'bedrock' ? ' active' : ''}`}
+                  onClick={() => set('agentProvider', 'bedrock')}
+                >Bedrock</button>
+              </div>
+            </div>
+
+            {/* Agent API key — Groq reuses the AI key, others show their own */}
+            {cfg.agentProvider === 'groq' && !cfg.groqApiKey && (
+              <p className="conn-hint" style={{ padding: '4px 0' }}>
+                Uses your Groq API key from AI section above.
+              </p>
+            )}
+            {cfg.agentProvider === 'groq' && cfg.groqApiKey && (
+              <p className="conn-hint" style={{ color: 'rgba(52,199,89,0.7)', padding: '4px 0' }}>
+                Using your Groq API key (Llama 3.3 70B).
+              </p>
+            )}
+            {cfg.agentProvider === 'gemini' && (
+              <div className="settings-field">
+                <label className="settings-label">
+                  Gemini API Key <span style={{ opacity: 0.4, fontSize: 9 }}>aistudio.google.com</span>
+                </label>
+                <div className="settings-input-wrap">
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    className="settings-input"
+                    placeholder="AIza..."
+                    value={cfg.geminiApiKey}
+                    onChange={e => set('geminiApiKey', e.target.value)}
+                    spellCheck={false}
+                  />
+                  <button className="peek-btn" onClick={() => setShowKey(v => !v)}>
+                    {showKey ? '🙈' : '👁'}
+                  </button>
+                </div>
+              </div>
+            )}
+            {cfg.agentProvider === 'claude' && (
+              <div className="settings-field">
+                <label className="settings-label">
+                  Claude API Key <span style={{ opacity: 0.4, fontSize: 9 }}>for agents</span>
+                </label>
+                <div className="settings-input-wrap">
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    className="settings-input"
+                    placeholder="sk-ant-..."
+                    value={cfg.claudeApiKey}
+                    onChange={e => set('claudeApiKey', e.target.value)}
+                    spellCheck={false}
+                  />
+                  <button className="peek-btn" onClick={() => setShowKey(v => !v)}>
+                    {showKey ? '🙈' : '👁'}
+                  </button>
+                </div>
+              </div>
+            )}
+            {cfg.agentProvider === 'bedrock' && (
+              <>
+                <div className="settings-field">
+                  <label className="settings-label">
+                    AWS Region <span style={{ opacity: 0.4, fontSize: 9 }}>Bedrock region</span>
+                  </label>
+                  <input
+                    className="settings-input"
+                    placeholder="us-east-1"
+                    value={cfg.bedrockRegion || ''}
+                    onChange={e => set('bedrockRegion', e.target.value)}
+                    spellCheck={false}
+                  />
+                </div>
+                <div className="settings-field">
+                  <label className="settings-label">Access Key ID</label>
+                  <div className="settings-input-wrap">
+                    <input
+                      type={showKey ? 'text' : 'password'}
+                      className="settings-input"
+                      placeholder="AKIA..."
+                      value={cfg.bedrockAccessKeyId || ''}
+                      onChange={e => set('bedrockAccessKeyId', e.target.value)}
+                      spellCheck={false}
+                    />
+                    <button className="peek-btn" onClick={() => setShowKey(v => !v)}>
+                      {showKey ? '🙈' : '👁'}
+                    </button>
+                  </div>
+                </div>
+                <div className="settings-field">
+                  <label className="settings-label">Secret Access Key</label>
+                  <div className="settings-input-wrap">
+                    <input
+                      type={showKey ? 'text' : 'password'}
+                      className="settings-input"
+                      placeholder="wJalr..."
+                      value={cfg.bedrockSecretAccessKey || ''}
+                      onChange={e => set('bedrockSecretAccessKey', e.target.value)}
+                      spellCheck={false}
+                    />
+                    <button className="peek-btn" onClick={() => setShowKey(v => !v)}>
+                      {showKey ? '🙈' : '👁'}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+
             {/* Save */}
-            {dirty && (
-              <div className="settings-actions">
+            <div className="pref-save-area">
+              {dirty && (
                 <button className="settings-save-btn" style={{ flex: 1 }} onClick={save}>
                   Save preferences
                 </button>
-              </div>
-            )}
+              )}
+            </div>
 
             {status && <div className="settings-status">{status}</div>}
 
@@ -513,6 +855,6 @@ export default function SettingsPanel({ onClose }) {
         )}
 
       </div>
-    </motion.div>
+    </div>
   )
 }

@@ -11,8 +11,70 @@ const TYPE_CONFIG = {
   deadline: { label: 'deadline', bg: 'rgba(255,69,58,0.14)',   text: '#FF453A' },
 }
 
+const SOURCE_CONFIG = {
+  slack: { icon: '💬', label: 'Slack' },
+  gmail: { icon: '📧', label: 'Gmail' },
+}
+
+// ── Agent type recommendation from task content ─────────────────────
+const JIRA_KEY_RE = /\b[A-Z][A-Z0-9]+-\d+\b/
+
+function recommendAgent(todo) {
+  const fullText = todo.text + (todo.context ? ' ' + todo.context : '')
+  const text = fullText.toLowerCase()
+  const jiraMatch = fullText.match(JIRA_KEY_RE)
+  // Task description becomes agent context so the agent knows what was asked
+  const taskContext = fullText
+
+  if (/\b(review|feedback|check|look at|go through)\b.*\b(prd|spec|requirement|doc|proposal)\b/.test(text)
+      || /\b(prd|spec|requirement)\b.*\b(review|feedback)\b/.test(text)) {
+    return { type: 'review-prd', input: jiraMatch ? { jiraKey: jiraMatch[0], context: taskContext } : { context: taskContext } }
+  }
+  if (/\b(write|create|draft)\b.*\b(prd|spec|requirement|proposal)\b/.test(text)) {
+    return { type: 'create-prd', input: { context: taskContext } }
+  }
+  if (/\b(sprint|backlog|board|standup|velocity)\b/.test(text)) {
+    return { type: 'review-sprint', input: { context: taskContext } }
+  }
+  if (/\b(implement|build|code|develop|pr\b|pull request|branch)\b/.test(text)) {
+    return { type: 'implement-prd', input: jiraMatch ? { jiraKey: jiraMatch[0], context: taskContext } : { context: taskContext } }
+  }
+  // If it has a Jira key, default to review-prd
+  if (jiraMatch) {
+    return { type: 'review-prd', input: { jiraKey: jiraMatch[0], context: taskContext } }
+  }
+  // Reply-type tasks or anything from Slack/Gmail → lookup-reply
+  if (todo.type === 'reply' || todo.source === 'slack' || todo.source === 'gmail') {
+    return {
+      type: 'lookup-reply',
+      input: {
+        query: todo.text,
+        target: todo.slackChannel || todo.gmailFrom || '',
+        context: taskContext,
+      },
+    }
+  }
+  return { type: 'lookup-reply', input: { query: todo.text, context: taskContext } }
+}
+
 const GROUP_ORDER = ['Today', 'This week', 'Older']
-const SORT_LABELS = { priority: '↑↓ priority', newest: '↑↓ newest', source: '↑↓ source' }
+const SORT_LABELS = { priority: '↑↓ priority', newest: '↑↓ newest', deadline: '↑↓ deadline', source: '↑↓ source' }
+
+function DeadlineTag({ deadline }) {
+  if (!deadline) return null
+  const now = Date.now()
+  const diff = deadline - now
+  const DAY = 86400000
+  const isOverdue = diff < 0
+  const isDueSoon = diff >= 0 && diff < DAY
+  const cls = isOverdue ? 'overdue' : isDueSoon ? 'due-soon' : ''
+  const label = isOverdue
+    ? `${Math.ceil(-diff / DAY)}d overdue`
+    : diff < DAY ? 'Due today'
+    : diff < 2 * DAY ? 'Tomorrow'
+    : `${Math.ceil(diff / DAY)}d`
+  return <span className={`todo-deadline ${cls}`}>{label}</span>
+}
 
 function TypeBadge({ type }) {
   if (!type || type === 'task') return null
@@ -22,7 +84,7 @@ function TypeBadge({ type }) {
 }
 
 function getGroup(todo) {
-  const ts = todo.createdAt || (typeof todo.id === 'number' ? todo.id : Date.now())
+  const ts = todo.createdAt || Date.now()
   const diff = Date.now() - ts
   const day = 86400000
   if (diff < day)     return 'Today'
@@ -30,8 +92,9 @@ function getGroup(todo) {
   return 'Older'
 }
 
-export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, onOpenSettings }) {
+export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, onOpenSettings, onOpenAgent }) {
   const [input, setInput]           = useState('')
+  const [inputDeadline, setInputDeadline] = useState('')
   const [search, setSearch]         = useState('')
   const [showSearch, setShowSearch] = useState(false)
   const [filterPriority, setFilterP] = useState(new Set())
@@ -51,14 +114,21 @@ export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, on
   function addTodo() {
     const text = input.trim()
     if (!text) return
-    setTodos(prev => [...prev, { id: Date.now(), text, done: false, createdAt: Date.now() }])
+    const todo = { id: crypto.randomUUID(), text, done: false, createdAt: Date.now() }
+    if (inputDeadline) todo.deadline = new Date(inputDeadline + 'T23:59:59').getTime()
+    setTodos(prev => [...prev, todo])
     setInput('')
+    setInputDeadline('')
   }
 
   function toggleTodo(id) {
-    if (!todos.find(t => t.id === id && !t.done)) return
-    setTodos(prev => prev.map(t => t.id === id ? { ...t, done: true } : t))
-    onTaskComplete()
+    const todo = todos.find(t => t.id === id)
+    if (!todo) return
+    const nowDone = !todo.done
+    setTodos(prev => prev.map(t =>
+      t.id === id ? { ...t, done: nowDone, completedAt: nowDone ? Date.now() : undefined } : t
+    ))
+    if (nowDone) onTaskComplete()
   }
 
   function deleteTodo(id) { setTodos(prev => prev.filter(t => t.id !== id)) }
@@ -76,7 +146,7 @@ export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, on
     setFilterT(prev => { const n = new Set(prev); n.has(t) ? n.delete(t) : n.add(t); return n })
   }
   function cycleSort() {
-    setSort(s => s === 'priority' ? 'newest' : s === 'newest' ? 'source' : 'priority')
+    setSort(s => s === 'priority' ? 'newest' : s === 'newest' ? 'deadline' : s === 'deadline' ? 'source' : 'priority')
   }
 
   const pending = useMemo(() => {
@@ -87,6 +157,7 @@ export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, on
       items = items.filter(t =>
         t.text?.toLowerCase().includes(q) ||
         t.from?.toLowerCase().includes(q) ||
+        t.gmailFrom?.toLowerCase().includes(q) ||
         t.slackChannelName?.toLowerCase().includes(q) ||
         t.context?.toLowerCase().includes(q)
       )
@@ -95,7 +166,8 @@ export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, on
     if (filterType.size > 0)     items = items.filter(t => filterType.has(t.type || 'task'))
 
     if (sort === 'priority')    items.sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 3) - (PRIORITY_ORDER[b.priority] ?? 3))
-    else if (sort === 'newest') items.sort((a, b) => (b.createdAt || b.id) - (a.createdAt || a.id))
+    else if (sort === 'newest') items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    else if (sort === 'deadline') items.sort((a, b) => (a.deadline || Infinity) - (b.deadline || Infinity))
     else if (sort === 'source') items.sort((a, b) => (a.source || 'manual').localeCompare(b.source || 'manual'))
 
     return items
@@ -111,7 +183,7 @@ export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, on
   }, [pending])
 
   const totalPending = useMemo(() => todos.filter(t => !t.done && !t.requiresResponse).length, [todos])
-  const done         = todos.filter(t => t.done && !t.requiresResponse)
+  const done         = todos.filter(t => t.done && !t.requiresResponse).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
   const hasFilters   = filterPriority.size > 0 || filterType.size > 0 || search.trim()
 
   function clearFilters() { setFilterP(new Set()); setFilterT(new Set()); setSearch(''); setShowSearch(false) }
@@ -140,10 +212,11 @@ export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, on
           <button
             className={`todo-icon-btn${showSearch ? ' active' : ''}`}
             onClick={() => setShowSearch(s => !s)}
-            title="Search tasks"
+            title="Search tasks" aria-label="Search tasks"
           >🔍</button>
-          <button className="settings-gear-btn" onClick={onOpenSettings} title="Settings">⚙</button>
-          <button className="close-btn" onClick={onClose}>✕</button>
+          <button className="todo-icon-btn" onClick={() => onOpenAgent()} title="Delegate to agent" aria-label="Delegate to agent">🤖</button>
+          <button className="settings-gear-btn" onClick={onOpenSettings} title="Settings" aria-label="Settings">⚙</button>
+          <button className="close-btn" onClick={onClose} aria-label="Close panel">✕</button>
         </div>
       </div>
 
@@ -170,8 +243,8 @@ export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, on
         )}
       </AnimatePresence>
 
-      {/* ── Filter bar ─────────────────────────────────────────── */}
-      <div className="filter-bar">
+      {/* ── Filter bar (hidden when < 5 tasks) ─────────────────── */}
+      {totalPending >= 5 && <div className="filter-bar">
         {/* Priority */}
         <div className="filter-group">
           {['high', 'medium', 'low'].map(p => {
@@ -234,7 +307,7 @@ export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, on
         {hasFilters && (
           <button className="filter-clear-btn" onClick={clearFilters} title="Clear filters">✕</button>
         )}
-      </div>
+      </div>}
 
       {/* ── Add task ───────────────────────────────────────────── */}
       <div className="todo-input-row">
@@ -245,6 +318,13 @@ export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, on
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKey}
+        />
+        <input
+          type="date"
+          className="deadline-input"
+          title="Set deadline"
+          value={inputDeadline}
+          onChange={e => setInputDeadline(e.target.value)}
         />
         <button className="add-btn" onClick={addTodo}>+</button>
       </div>
@@ -257,16 +337,26 @@ export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, on
           <div className="empty-state">
             <span className="empty-icon">✦</span>
             <span className="empty-title">All clear!</span>
-            <span className="empty-sub">Add a task above or wait for Slack to sync.</span>
+            <span className="empty-sub">
+              Add a task above, or{' '}
+              <span className="empty-link" onClick={onOpenSettings}>connect Slack or Gmail</span>
+              {' '}to auto-sync tasks.
+            </span>
           </div>
         )}
-        {pending.length === 0 && hasFilters && (
+        {pending.length === 0 && hasFilters && (() => {
+          const n = filterPriority.size + filterType.size + (search.trim() ? 1 : 0)
+          return (
           <div className="empty-state">
             <span className="empty-icon">🔍</span>
             <span className="empty-title">No matches</span>
-            <span className="empty-sub">Try adjusting your filters</span>
+            <span className="empty-sub">
+              {n} filter{n !== 1 ? 's' : ''} active{' — '}
+              <span className="empty-link" onClick={clearFilters}>clear all</span>
+            </span>
           </div>
-        )}
+          )
+        })()}
 
         {/* Grouped task items */}
         <AnimatePresence>
@@ -280,36 +370,58 @@ export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, on
               {items.map(todo => (
                 <motion.div
                   key={todo.id}
-                  className="todo-item"
+                  className={`todo-item${todo.deadline && todo.deadline < Date.now() ? ' overdue' : ''}`}
                   initial={{ x: -14, opacity: 0 }}
                   animate={{ x: 0,   opacity: 1 }}
                   exit={{ x: 20, opacity: 0, height: 0, marginTop: 0, marginBottom: 0 }}
                   transition={{ type: 'spring', stiffness: 300, damping: 26 }}
                 >
-                  <div
-                    className="priority-bar"
-                    style={{ background: PRIORITY_COLOR[todo.priority] || 'rgba(255,255,255,0.12)' }}
-                  />
                   <div className="todo-item-inner">
+                    <div
+                      className="priority-dot"
+                      style={{ background: PRIORITY_COLOR[todo.priority] || 'rgba(255,255,255,0.12)' }}
+                    />
                     <button className="check-btn" onClick={() => toggleTodo(todo.id)} />
                     <div className="todo-content">
-                      <span className="todo-action">{todo.text}</span>
-                      {(todo.from || todo.slackChannelName || todo.context || (todo.type && todo.type !== 'task')) && (
+                      <span className="todo-action">
+                        {todo.text}
+                        <DeadlineTag deadline={todo.deadline} />
+                      </span>
+                      {todo.context && (
+                        <span className="todo-subject">{todo.context}</span>
+                      )}
+                      {(todo.source === 'slack' || todo.source === 'gmail' || todo.from || todo.gmailFrom || todo.slackChannelName || (todo.type && todo.type !== 'task')) && (
                         <div className="todo-meta">
-                          <TypeBadge type={todo.type} />
-                          {todo.from && <span className="todo-meta-from">@{todo.from}</span>}
-                          {todo.slackChannelName && (
-                            <span className="todo-meta-channel">
-                              {todo.source === 'slack' ? `#${todo.slackChannelName}` : todo.slackChannelName}
+                          {SOURCE_CONFIG[todo.source] && (
+                            <span className="todo-meta-source" title={SOURCE_CONFIG[todo.source].label}>
+                              {SOURCE_CONFIG[todo.source].icon}
                             </span>
                           )}
-                          {todo.context && (
-                            <span className="todo-meta-context">{todo.context}</span>
+                          {(todo.from || todo.gmailFrom) && (
+                            <span className="todo-meta-from">@{todo.from || todo.gmailFrom}</span>
                           )}
+                          <span className="todo-meta-extra">
+                            {todo.slackChannelName && (
+                              <span className="todo-meta-channel">
+                                {todo.source === 'slack' ? `#${todo.slackChannelName}` : todo.slackChannelName}
+                              </span>
+                            )}
+                            <TypeBadge type={todo.type} />
+                            {todo.assignee && (
+                              <span className="todo-assignee">{todo.assignee}</span>
+                            )}
+                          </span>
                         </div>
                       )}
                     </div>
-                    <button className="delete-btn" onClick={() => deleteTodo(todo.id)}>✕</button>
+                    <div className="todo-actions-hover">
+                      <button
+                        className="delegate-btn"
+                        onClick={() => onOpenAgent(recommendAgent(todo))}
+                        title="Delegate to agent"
+                      >Delegate</button>
+                      <button className="delete-btn" onClick={() => deleteTodo(todo.id)}>✕</button>
+                    </div>
                   </div>
                 </motion.div>
               ))}
@@ -341,9 +453,8 @@ export default function TodoPanel({ todos, setTodos, onTaskComplete, onClose, on
                 >
                   {done.map(todo => (
                     <div key={todo.id} className="todo-item done">
-                      <div className="priority-bar" style={{ background: 'rgba(255,255,255,0.08)' }} />
                       <div className="todo-item-inner">
-                        <span className="check-done">✓</span>
+                        <button className="check-done" onClick={() => toggleTodo(todo.id)} title="Undo">✓</button>
                         <div className="todo-content">
                           <span className="todo-action">{todo.text}</span>
                         </div>
