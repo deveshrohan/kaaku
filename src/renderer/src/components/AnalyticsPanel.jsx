@@ -207,6 +207,68 @@ function AgentPerformance({ runs }) {
   )
 }
 
+// ── Agent Eval Metrics ──────────────────────────────────────────
+
+function AgentEvalMetrics({ stats }) {
+  if (!stats) return null
+  return (
+    <div className="ap-section">
+      <div className="ap-section-title">Agent Evaluation</div>
+      <div className="ap-agent-row">
+        <div className="ap-agent-stat">
+          <span className="ap-agent-value" style={{ color: 'var(--accent)' }}>{stats.avgScore}</span>
+          <span className="ap-agent-label">avg score</span>
+        </div>
+        <div className="ap-agent-stat">
+          <span className="ap-agent-value">{stats.avgDurationS}s</span>
+          <span className="ap-agent-label">avg duration</span>
+        </div>
+        <div className="ap-agent-stat">
+          <span className="ap-agent-value" style={{ color: stats.toolErrorRate > 15 ? 'var(--color-error)' : 'var(--color-success)' }}>
+            {stats.toolErrorRate}%
+          </span>
+          <span className="ap-agent-label">tool errors</span>
+        </div>
+        <div className="ap-agent-stat">
+          <span className="ap-agent-value" style={{ color: stats.draftApprovalRate < 50 ? 'var(--color-error)' : 'var(--color-success)' }}>
+            {stats.draftApprovalRate}%
+          </span>
+          <span className="ap-agent-label">draft approval</span>
+        </div>
+      </div>
+
+      {/* Per-type breakdown */}
+      {Object.keys(stats.byType || {}).length > 0 && (
+        <div className="ap-eval-types">
+          {Object.entries(stats.byType).map(([type, data]) => (
+            <div key={type} className="ap-eval-type-row">
+              <span className="ap-eval-type-name">{type}</span>
+              <span className="ap-eval-type-score">{data.avgScore}/100</span>
+              <span className="ap-eval-type-rate" style={{
+                color: data.successRate >= 50 ? 'var(--color-success)' : 'var(--color-error)'
+              }}>{data.successRate}% success</span>
+              <span className="ap-eval-type-count">{data.runs} runs</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Top failed tools */}
+      {stats.topFailedTools?.length > 0 && (
+        <div className="ap-eval-failures">
+          <div className="ap-eval-failures-title">Top Failing Tools</div>
+          {stats.topFailedTools.map(([tool, count]) => (
+            <div key={tool} className="ap-eval-failure-row">
+              <span className="ap-eval-failure-tool">{tool}</span>
+              <span className="ap-eval-failure-count">{count} errors</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Top Sources ─────────────────────────────────────────────────────
 
 function TopSources({ senders }) {
@@ -238,10 +300,14 @@ function TopSources({ senders }) {
 
 export default function AnalyticsPanel({ todos }) {
   const [agentRuns, setAgentRuns] = useState([])
+  const [evalStats, setEvalStats] = useState(null)
 
   useEffect(() => {
     window.wallE?.listAgentRuns().then(r => {
       if (Array.isArray(r)) setAgentRuns(r)
+    })
+    window.wallE?.getEvalStats?.().then(s => {
+      if (s) setEvalStats(s)
     })
   }, [])
 
@@ -336,6 +402,7 @@ export default function AnalyticsPanel({ todos }) {
         <WeeklyThroughput weeks={weeklyData} />
         <ResponseTime {...responseTime} />
         <AgentPerformance runs={agentRuns} />
+        <AgentEvalMetrics stats={evalStats} />
         <TopSources senders={topSenders} />
       </div>
 

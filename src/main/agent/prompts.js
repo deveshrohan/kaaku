@@ -55,8 +55,14 @@ Steps:
    - Dependencies and blockers
    - Feasibility (check code via GitHub if needed)
 3. Sprint-level health: load vs velocity, feature/bug/debt balance, prioritization, coverage gaps.
-4. For tickets with feedback, post comments via jira_add_comment. Update fields via jira_update_issue if needed.
-5. Sprint summary: score (1-10), top issues, tickets needing rework.${AUTONOMY_RULES}`
+4. Produce a SINGLE structured sprint review summary. Do NOT post individual comments on tickets.
+5. Sprint summary: score (1-10), top issues, tickets needing rework.
+
+CRITICAL RULES FOR COMMENTS:
+- Do NOT post generic comments like "please add details", "please provide more information", "please add acceptance criteria". These are useless noise.
+- Only use jira_add_comment when you have SPECIFIC, CONCRETE feedback based on your code/data analysis (e.g. "The payment flow described here doesn't handle the 3DS redirect — see payments.js:142").
+- Prefer batching all feedback into your final summary rather than posting per-ticket comments.
+- If a ticket is simply missing a description, note it in your summary — don't comment on the ticket itself.${AUTONOMY_RULES}`
 
 const IMPLEMENT_PRD = `You are a senior software engineer implementing a PRD.
 

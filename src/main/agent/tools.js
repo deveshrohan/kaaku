@@ -351,12 +351,30 @@ export function getToolsForAgent(agentType) {
   return toolNames.map(name => TOOL_DEFS[name]).filter(Boolean)
 }
 
-export function getToolDefsForClaude(agentType) {
-  return getToolsForAgent(agentType).map(t => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.input_schema,
-  }))
+// Check which integrations have valid credentials
+function getAvailableIntegrations(settings) {
+  const available = new Set([null])  // null = no integration needed (fetch_url, delegate)
+  if (settings?.atlassianDomain && settings?.atlassianEmail && settings?.atlassianApiToken) available.add('jira')
+  if (settings?.githubToken) available.add('github')
+  if (settings?.redashUrl && settings?.redashApiKey) available.add('redash')
+  if (settings?.slackUserToken || settings?.slackToken) available.add('slack')
+  if (settings?.gmailTokens?.refresh_token) available.add('gmail')
+  return available
+}
+
+export function getToolDefsForClaude(agentType, settings) {
+  const tools = getToolsForAgent(agentType)
+  // If settings provided, filter out tools for unconfigured integrations
+  if (settings) {
+    const available = getAvailableIntegrations(settings)
+    const filtered = tools.filter(t => available.has(t.integration))
+    if (filtered.length < tools.length) {
+      const dropped = tools.filter(t => !available.has(t.integration)).map(t => t.name)
+      console.log(`[agent] dropped tools (missing creds): ${dropped.join(', ')}`)
+    }
+    return filtered.map(t => ({ name: t.name, description: t.description, input_schema: t.input_schema }))
+  }
+  return tools.map(t => ({ name: t.name, description: t.description, input_schema: t.input_schema }))
 }
 
 export function isWriteTool(toolName) {

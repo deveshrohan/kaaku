@@ -104,13 +104,15 @@ export function addDraft(runId, draft) {
   scheduleSave(runs)
 }
 
-export function resolveDraft(runId, draftId, approved) {
+export function resolveDraft(runId, draftId, approved, reason) {
   const runs = loadRuns()
   const run = runs.find(r => r.id === runId)
   if (!run) return null
   const draft = run.drafts.find(d => d.id === draftId)
   if (!draft) return null
   draft.approved = approved
+  draft.resolvedAt = Date.now()
+  if (reason) draft.rejectionReason = reason
   run.status = 'running'
   run.updatedAt = Date.now()
   scheduleSave(runs)

@@ -78,6 +78,8 @@ contextBridge.exposeInMainWorld('wallE', {
     ipcRenderer.on('sync:status', handler)
     return () => ipcRenderer.removeListener('sync:status', handler)
   },
+  // Agent evals
+  getEvalStats:      ()  => ipcRenderer.invoke('agent:eval-stats'),
   // Trapdoor hide/show
   trapdoorHideComplete: () => ipcRenderer.invoke('trapdoor:hide-complete'),
   requestTrapdoorHide:  () => ipcRenderer.send('trapdoor:request-hide'),

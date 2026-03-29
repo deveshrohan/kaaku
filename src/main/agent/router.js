@@ -49,7 +49,7 @@ const AGENT_ROUTES = [
       /how.s\s+the\s+sprint/i,
       /(?:backlog|grooming|refinement)\s+(?:review|check|session)/i,
       /(?:standup|stand-up)\s+(?:prep|summary|notes)/i,
-      /(?:velocity|burndown|burn-down)\s+(?:check|report|chart)/i,
+      /(?:velocity|burndown|burn-down)/i,
       /capacity\s+(?:planning|check)/i,
       /how.*(?:sprint|iteration)\s+(?:going|doing|looking)/i,
     ],
@@ -91,9 +91,11 @@ const AGENT_ROUTES = [
       /(?:stakeholder|exec|leadership)\s+(?:update|report|summary|brief)/i,
       /(?:write|draft|prepare)\s+(?:a\s+)?(?:status|weekly|monthly)\s+(?:update|report)/i,
       /release\s+(?:notes|summary|plan)/i,
-      /(?:prepare|prep)\s+(?:for\s+)?(?:meeting|sync|1:1|one-on-one)/i,
+      /(?:prepare|prep)\s+(?:for\s+)?(?:meeting|sync|1:1|one-on-one|1 on 1)/i,
+      /(?:1:1|one-on-one|1 on 1)\s+(?:with|prep|notes)/i,
       /(?:summarize|sum up|recap)\s+(?:the\s+)?(?:thread|conversation|discussion|emails?)/i,
-      /what.*(?:data|numbers?|metrics?)\s+(?:for|on|about)/i,
+      /what.*(?:data|numbers?|metrics?)\s+(?:for|on|about|do)/i,
+      /(?:do we have|is there)\s+(?:data|numbers?|info)/i,
     ],
     extract(query) {
       const target = query.match(/(?:reply\s+to|send\s+to|post\s+(?:in|to)|email)\s+([#@]?[\w.-]+(?:@[\w.-]+)?)/i)
@@ -136,8 +138,10 @@ export function routeQuery(query) {
   }
 
   // No heuristic match — check for bare Jira key → default to review-prd
+  // But skip fallback if the query has action verbs that imply PM-level work
   const jiraMatch = trimmed.match(/\b([A-Z][A-Z0-9]+-\d+)\b/)
-  if (jiraMatch) {
+  const hasActionVerb = /\b(update|move|transition|assign|close|reopen|change|set|mark)\b/i.test(trimmed)
+  if (jiraMatch && !hasActionVerb) {
     return {
       type: 'review-prd',
       label: 'Reviewing PRD',

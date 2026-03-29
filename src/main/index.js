@@ -9,6 +9,7 @@ import { testJiraConnection } from './atlassian.js'
 import { testRedashConnection } from './redash.js'
 import { testGithubConnection } from './github.js'
 import { createRun, updateRun, addStep, addDraft, resolveDraft, getRun, listRuns } from './agent/runs.js'
+import { scoreRun, detectStuckRuns, aggregateEvals } from './agent/evals.js'
 import { runAgent } from './agent/executor.js'
 import { routeQuery, getTypeMeta } from './agent/router.js'
 
@@ -824,6 +825,13 @@ function createWindow() {
 
       onComplete: (runId, result) => {
         updateRun(runId, { status: 'completed', result })
+        // Score the run for evals
+        const completedRun = getRun(runId)
+        if (completedRun) {
+          const evalResult = scoreRun(completedRun)
+          updateRun(runId, { eval: evalResult })
+          console.log(`[agent] eval: run ${runId} scored ${evalResult.score}/100`)
+        }
         activeAgents.delete(runId)
         if (mainWindow && !mainWindow.isDestroyed()) {
           try { mainWindow.webContents.send('agent:completed', runId, result) } catch {}
@@ -832,6 +840,13 @@ function createWindow() {
 
       onFail: (runId, error) => {
         updateRun(runId, { status: 'failed', error })
+        // Score failed runs too — captures tool error patterns
+        const failedRun = getRun(runId)
+        if (failedRun) {
+          const evalResult = scoreRun(failedRun)
+          updateRun(runId, { eval: evalResult })
+          console.log(`[agent] eval: run ${runId} scored ${evalResult.score}/100 (failed)`)
+        }
         activeAgents.delete(runId)
         if (mainWindow && !mainWindow.isDestroyed()) {
           try { mainWindow.webContents.send('agent:failed', runId, error) } catch {}
@@ -887,7 +902,7 @@ function createWindow() {
     const control = activeAgents.get(runId)
     const resolve = control?.pendingDrafts?.get(draftId)
     if (resolve) {
-      resolveDraft(runId, draftId, false)
+      resolveDraft(runId, draftId, false, reason || null)
       resolve(false)
       control.pendingDrafts.delete(draftId)
     }
@@ -904,8 +919,32 @@ function createWindow() {
     return { ok: true }
   })
 
-  ipcMain.handle('agent:list-runs', () => listRuns())
+  ipcMain.handle('agent:list-runs', () => {
+    // Detect and clean up stuck runs on every list request
+    const runs = listRuns()
+    const stuckIds = detectStuckRuns(runs)
+    for (const id of stuckIds) {
+      updateRun(id, { status: 'failed', error: 'Timed out — stuck for over 1 hour' })
+      const run = getRun(id)
+      if (run && !run.eval) updateRun(id, { eval: scoreRun(run) })
+      activeAgents.delete(id)
+    }
+    if (stuckIds.length) console.log(`[agent] cleaned ${stuckIds.length} stuck runs`)
+    return listRuns()
+  })
   ipcMain.handle('agent:get-run', (_, runId) => getRun(runId))
+
+  // Aggregate eval stats for the dashboard
+  ipcMain.handle('agent:eval-stats', () => {
+    const runs = listRuns()
+    // Backfill: score any terminal runs that don't have eval yet
+    for (const r of runs) {
+      if ((r.status === 'completed' || r.status === 'failed') && !r.eval) {
+        updateRun(r.id, { eval: scoreRun(r) })
+      }
+    }
+    return aggregateEvals(listRuns())
+  })
 
   // ── Gmail IPC ──────────────────────────────────────────────────
   ipcMain.handle('gmail:connect', async () => {

@@ -12,6 +12,8 @@ const GEMINI_MODEL   = 'gemini-2.0-flash'
 const GROQ_MODEL     = 'llama-3.3-70b-versatile'
 const GROQ_BASE_URL  = 'https://api.groq.com/openai/v1'
 const MAX_ITERATIONS = 40
+const RETRY_DELAYS   = [10000, 30000, 60000]  // exponential backoff for 429s
+const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 // ── Provider adapters ────────────────────────────────────────────────
 // Each adapter normalizes a different LLM SDK into the same interface:
@@ -263,7 +265,7 @@ export async function runAgent({ run, settings, onStep, onDraft, onAskUser, onCo
   const provider = settings.agentProvider || 'groq'
   const memoryContext = getMemoryForPrompt(run.type)
   const systemPrompt = getSystemPrompt(run.type, memoryContext)
-  const claudeTools = getToolDefsForClaude(run.type)
+  const claudeTools = getToolDefsForClaude(run.type, settings)
   const userMessage = buildUserMessage(run.type, run.input)
 
   const adapter = provider === 'bedrock' ? createBedrockAdapter(settings, systemPrompt, claudeTools)
@@ -280,12 +282,32 @@ export async function runAgent({ run, settings, onStep, onDraft, onAskUser, onCo
       onStep(run.id, { ts: Date.now(), type: 'llm_call', content: `Iteration ${iteration + 1}` })
 
       let raw
-      try {
-        raw = await adapter.call(messages)
-      } catch (apiErr) {
-        const errMsg = apiErr?.status
-          ? `${provider} API error ${apiErr.status}: ${(apiErr.message || '').slice(0, 200)}`
-          : `${provider} API error: ${(apiErr.message || String(apiErr)).slice(0, 300)}`
+      // Retry with exponential backoff on rate limits (429)
+      let lastErr
+      for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+        try {
+          raw = await adapter.call(messages)
+          lastErr = null
+          break
+        } catch (apiErr) {
+          lastErr = apiErr
+          const is429 = apiErr?.status === 429 || String(apiErr?.message || '').includes('429')
+          const isSchemaErr = String(apiErr?.message || '').includes('Failed to call a function')
+          if ((is429 || isSchemaErr) && attempt < RETRY_DELAYS.length) {
+            const delay = RETRY_DELAYS[attempt]
+            console.log(`[agent] ${is429 ? '429 rate limit' : 'schema error'}, retrying in ${delay / 1000}s (attempt ${attempt + 1}/${RETRY_DELAYS.length})`)
+            onStep(run.id, { ts: Date.now(), type: 'thinking', content: `Rate limited — retrying in ${delay / 1000}s...` })
+            await sleep(delay)
+            if (isCancelled()) return
+            continue
+          }
+          break
+        }
+      }
+      if (lastErr) {
+        const errMsg = lastErr?.status
+          ? `${provider} API error ${lastErr.status}: ${(lastErr.message || '').slice(0, 200)}`
+          : `${provider} API error: ${(lastErr.message || String(lastErr)).slice(0, 300)}`
         throw new Error(errMsg)
       }
 
