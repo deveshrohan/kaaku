@@ -3,6 +3,7 @@ import { useRef, useEffect, useState, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
 import modelUrl from './chopper.glb?url'
+import handleTrapdoor from './useTrapdoorAnim'
 
 export const meta = { id: 'chopper', name: 'Chopper', icon: '🦌', color: '#7B4F2E' }
 
@@ -68,6 +69,7 @@ export default function Chopper({ animState, onAnimComplete }) {
     const a = A.current
     const g = gRef.current
     if (!g) return
+    if (handleTrapdoor(g, a, dt, onAnimComplete)) return
 
     if (a.state === 'idle') {
       a.idleT += dt

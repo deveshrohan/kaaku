@@ -3,6 +3,7 @@ import { useRef, useEffect, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useGLTF, useAnimations } from '@react-three/drei'
 import modelUrl from './luffyv2.glb?url'
+import handleTrapdoor from './useTrapdoorAnim'
 
 export const meta = { id: 'luffy', name: 'Luffy', icon: '🏴‍☠️', color: '#CC2020' }
 
@@ -114,6 +115,7 @@ export default function Luffy({ animState, onAnimComplete }) {
   useFrame((_, dt) => {
     const g = groupRef.current
     if (!g) return
+    if (handleTrapdoor(g, A.current, dt, onAnimComplete)) return
 
     if (glbActive.current) {
       // Keep group neutral — orientation correction is on orientRef, bones do the work

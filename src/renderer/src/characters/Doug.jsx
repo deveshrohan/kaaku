@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
+import handleTrapdoor from './useTrapdoorAnim'
 
 export const meta = { id: 'doug', name: 'Doug', icon: '🐕', color: '#C8A55A' }
 
@@ -86,6 +87,9 @@ export default function Doug({ animState, onAnimComplete }) {
 
   useFrame((_, dt) => {
     const a = A.current
+    const g = groupRef.current
+    if (!g) return
+    if (handleTrapdoor(g, a, dt, onAnimComplete)) return
     const t = a.idleT
 
     const lerp = (va, vb, f) => va + (vb - va) * Math.min(Math.max(f, 0), 1)

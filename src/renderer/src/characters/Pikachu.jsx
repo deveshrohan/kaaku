@@ -3,6 +3,7 @@ import { useRef, useEffect, useState, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
 import modelUrl from './pikachu.glb?url'
+import handleTrapdoor from './useTrapdoorAnim'
 
 export const meta = { id: 'pikachu', name: 'Pikachu', icon: '⚡', color: '#F7E142' }
 
@@ -72,6 +73,7 @@ export default function Pikachu({ animState, onAnimComplete }) {
     const a = A.current
     const g = gRef.current
     if (!g) return
+    if (handleTrapdoor(g, a, dt, onAnimComplete)) return
 
     if (a.state === 'idle') {
       a.idleT += dt

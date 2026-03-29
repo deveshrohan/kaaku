@@ -78,4 +78,17 @@ contextBridge.exposeInMainWorld('wallE', {
     ipcRenderer.on('sync:status', handler)
     return () => ipcRenderer.removeListener('sync:status', handler)
   },
+  // Trapdoor hide/show
+  trapdoorHideComplete: () => ipcRenderer.invoke('trapdoor:hide-complete'),
+  requestTrapdoorHide:  () => ipcRenderer.send('trapdoor:request-hide'),
+  onTrapdoorStartHide: (cb) => {
+    const handler = () => cb()
+    ipcRenderer.on('trapdoor:start-hide', handler)
+    return () => ipcRenderer.removeListener('trapdoor:start-hide', handler)
+  },
+  onTrapdoorStartShow: (cb) => {
+    const handler = () => cb()
+    ipcRenderer.on('trapdoor:start-show', handler)
+    return () => ipcRenderer.removeListener('trapdoor:start-show', handler)
+  },
 })

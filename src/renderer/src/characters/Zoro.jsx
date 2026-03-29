@@ -3,6 +3,7 @@ import { useRef, useEffect, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useGLTF, useAnimations } from '@react-three/drei'
 import modelUrl from './zorov2.glb?url'
+import handleTrapdoor from './useTrapdoorAnim'
 
 export const meta = { id: 'zoro', name: 'Zoro', icon: '⚔️', color: '#3A7A3A' }
 
@@ -92,6 +93,7 @@ export default function Zoro({ animState, onAnimComplete }) {
   useFrame((_, dt) => {
     const g = groupRef.current
     if (!g) return
+    if (handleTrapdoor(g, A.current, dt, onAnimComplete)) return
 
     if (glbActive.current) {
       g.position.set(0, 0, 0)

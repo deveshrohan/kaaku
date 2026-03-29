@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { useRef, useEffect, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
+import handleTrapdoor from './useTrapdoorAnim'
 
 export const meta = { id: 'raccoon', name: 'Raccoon', icon: '🦝', color: '#8A8A8A' }
 
@@ -108,6 +109,7 @@ export default function Raccoon({ animState, onAnimComplete }) {
     const re = rightEarRef.current
 
     if (!g || !h || !tl || !la || !ra) return
+    if (handleTrapdoor(g, a, dt, onAnimComplete)) return
 
     // ─── IDLE ────────────────────────────────────────────────────────────────
     if (a.state === 'idle') {

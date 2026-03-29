@@ -192,14 +192,30 @@ async function fetchEmailDetails(token, messageIds) {
       if (!msg.id) continue
       const h = Object.fromEntries((msg.payload?.headers || []).map(h => [h.name, h.value]))
       emails.push({
-        id:      msg.id,
-        subject: (h.Subject || '(no subject)').slice(0, 100),
-        from:    (h.From    || '').slice(0, 80),
-        snippet: (msg.snippet || '').slice(0, 250),
+        id:       msg.id,
+        threadId: msg.threadId || null,
+        subject:  (h.Subject || '(no subject)').slice(0, 100),
+        from:     (h.From    || '').slice(0, 80),
+        snippet:  (msg.snippet || '').slice(0, 250),
+        internalDate: parseInt(msg.internalDate || '0', 10),
       })
     } catch { /* skip individual failures */ }
   }
   return emails
+}
+
+// Group emails by threadId, keeping only the latest per thread.
+// Follow-up/reminder emails in the same thread shouldn't create separate TODOs.
+function dedupeByThread(emails) {
+  const threadMap = new Map()
+  for (const e of emails) {
+    const key = e.threadId || e.id  // fall back to id if no threadId
+    const existing = threadMap.get(key)
+    if (!existing || e.internalDate > existing.internalDate) {
+      threadMap.set(key, e)
+    }
+  }
+  return [...threadMap.values()]
 }
 
 async function classifyEmails({ emails, provider, claudeApiKey, groqApiKey }) {
@@ -256,19 +272,26 @@ async function classifyEmails({ emails, provider, claudeApiKey, groqApiKey }) {
     const email = emails[item.index - 1]
     if (!email) return null
     return {
-      id:        crypto.randomUUID(),
-      text:      String(item.task || '').slice(0, 120),
-      done:      false,
-      createdAt: Date.now(),
-      priority:  ['high', 'medium', 'low'].includes(item.priority) ? item.priority : 'medium',
-      source:    'gmail',
-      gmailId:   email.id,
-      gmailFrom: email.from,
+      id:            crypto.randomUUID(),
+      text:          String(item.task || '').slice(0, 120),
+      done:          false,
+      createdAt:     Date.now(),
+      priority:      ['high', 'medium', 'low'].includes(item.priority) ? item.priority : 'medium',
+      source:        'gmail',
+      gmailId:       email.id,
+      gmailThreadId: email.threadId || null,
+      gmailFrom:     email.from,
     }
   }).filter(Boolean)
 }
 
 const BATCH = 15
+
+// Convert a Set of bare IDs into "id:timestamp" pairs for time-based expiry
+function stampIds(idSet) {
+  const now = Date.now()
+  return [...idSet].map(id => `${id}:${now}`)
+}
 
 export async function syncGmail({ tokens, lookbackHours = 24, claudeApiKey, groqApiKey, provider = 'groq', processedIds = [] }) {
   const freshTokens = await refreshTokenIfNeeded(tokens)
@@ -285,16 +308,37 @@ export async function syncGmail({ tokens, lookbackHours = 24, claudeApiKey, groq
   )
 
   const allMessages = searchRes.messages || []
-  const processedSet = new Set(processedIds.slice(-3000))
+  // Time-based cutoff for processedIds (lookback + 1 day buffer), matching Slack behavior.
+  // The old slice(-3000) cap could evict IDs and cause re-processing.
+  const cutoffMs = Date.now() - (lookbackHours + 24) * 3600 * 1000
+  const processedSet = new Set(
+    processedIds.filter(entry => {
+      // processedIds are gmail message IDs (hex strings, not timestamps).
+      // Keep entries that were added recently by storing them as "id:timestamp" pairs.
+      // For backward compat, keep bare IDs (old format) for one full cycle.
+      const parts = entry.split(':')
+      if (parts.length === 2) {
+        const ts = parseInt(parts[1], 10)
+        return !isNaN(ts) && ts >= cutoffMs
+      }
+      return true // keep old-format bare IDs for one cycle
+    }).map(entry => entry.split(':')[0]) // extract just the ID part
+  )
   const newIds = allMessages.map(m => m.id).filter(id => !processedSet.has(id))
 
   console.log(`[gmail] ${allMessages.length} messages found, ${newIds.length} new`)
 
   if (newIds.length === 0) {
-    return { todos: [], processedIds: [...processedSet], tokens: freshTokens, error: null }
+    return { todos: [], processedIds: stampIds(processedSet), tokens: freshTokens, error: null }
   }
 
-  const emails = await fetchEmailDetails(token, newIds.slice(0, 50))
+  const allEmails = await fetchEmailDetails(token, newIds.slice(0, 50))
+  // Group by thread — only classify the latest email per thread to avoid
+  // follow-up/reminder emails creating duplicate TODOs
+  const emails = dedupeByThread(allEmails)
+  if (allEmails.length > emails.length) {
+    console.log(`[gmail] thread dedup: ${allEmails.length} → ${emails.length} emails`)
+  }
   const todos  = []
 
   for (let i = 0; i < emails.length; i += BATCH) {
@@ -307,9 +351,56 @@ export async function syncGmail({ tokens, lookbackHours = 24, claudeApiKey, groq
     }
     for (const e of batch) processedSet.add(e.id)
   }
+  // Also mark thread-deduped emails as processed so they don't reappear
+  for (const e of allEmails) processedSet.add(e.id)
 
   console.log(`[gmail] sync done — ${todos.length} action items`)
-  return { todos, processedIds: [...processedSet], tokens: freshTokens, error: null }
+  return { todos, processedIds: stampIds(processedSet), tokens: freshTokens, error: null }
+}
+
+// ── Gmail auto-resolution ──────────────────────────────────────────
+// Check if the user has replied to threads that have pending TODOs.
+// If the user sent a message in the thread after the TODO was created,
+// the task is likely handled — auto-resolve it.
+export async function checkGmailResolutions(tokens, pendingTasks) {
+  const resolvedIds = []
+  if (!pendingTasks.length) return { resolvedIds }
+
+  const freshTokens = await refreshTokenIfNeeded(tokens)
+  const token = freshTokens.access_token
+
+  const CAP = 20
+  let checked = 0
+
+  for (const task of pendingTasks) {
+    if (!task.gmailThreadId || checked >= CAP) break
+    checked++
+
+    try {
+      // Fetch all messages in the thread
+      const thread = await httpsGet(
+        `https://gmail.googleapis.com/gmail/v1/users/me/threads/${task.gmailThreadId}` +
+        `?format=metadata&metadataHeaders=From`,
+        token
+      )
+      const messages = thread.messages || []
+
+      // Check if any message AFTER the TODO was created is FROM the user
+      // (Gmail labels sent messages with the SENT label)
+      for (const msg of messages) {
+        const msgDate = parseInt(msg.internalDate || '0', 10)
+        if (msgDate <= task.createdAt) continue // older than the TODO
+        const labels = msg.labelIds || []
+        if (labels.includes('SENT')) {
+          resolvedIds.push(task.id)
+          break
+        }
+      }
+    } catch { /* skip failures */ }
+  }
+
+  if (resolvedIds.length) console.log(`[gmail] auto-resolved ${resolvedIds.length} tasks`)
+  return { resolvedIds }
 }
 
 // ── Send an email via Gmail (used by agents) ────────────────────────

@@ -3,6 +3,7 @@ import { useRef, useEffect, useState, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
 import modelUrl from './riri.glb?url'
+import handleTrapdoor from './useTrapdoorAnim'
 
 export const meta = { id: 'riri', name: 'Riri', icon: '👩‍💼', color: '#C8A44A' }
 
@@ -68,6 +69,7 @@ export default function Riri({ animState, onAnimComplete }) {
     const a = A.current
     const g = gRef.current
     if (!g) return
+    if (handleTrapdoor(g, a, dt, onAnimComplete)) return
 
     if (a.state === 'idle') {
       a.idleT += dt

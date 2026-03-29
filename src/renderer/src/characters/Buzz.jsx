@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { useRef, useEffect, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
+import handleTrapdoor from './useTrapdoorAnim'
 
 export const meta = { id: 'buzz', name: 'Buzz', icon: '🚀', color: '#6A4DB8' }
 
@@ -74,6 +75,9 @@ export default function Buzz({ animState, onAnimComplete }) {
 
   useFrame((_, dt) => {
     const a = A.current
+    const g = groupRef.current
+    if (!g) return
+    if (handleTrapdoor(g, a, dt, onAnimComplete)) return
     const t = a.idleT
 
     if (a.state === 'idle') {

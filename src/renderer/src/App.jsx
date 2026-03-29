@@ -147,9 +147,12 @@ export default function App() {
   const [notifQueue, setNotifQueue]     = useState([])   // pending bubbles
   const [needsOnboarding, setNeedsOnboarding] = useState(false)
   const [showCmdPalette, setShowCmdPalette]   = useState(false)
-  const [showCharTip, setShowCharTip]         = useState(false)
-  const charTipShown = useRef(false)
   const currentNotif = notifQueue[0] ?? null
+
+  // ── trapdoor hide/show ──────────────────────────────────────
+  // Phases: null | 'hide-opening' | 'hide-falling' | 'hide-closing' | 'hidden'
+  //       | 'show-opening' | 'show-rising' | 'show-closing'
+  const [trapdoorPhase, setTrapdoorPhase] = useState(null)
 
   // ── character picker ─────────────────────────────────────────
   const [pickerIdx, setPickerIdx] = useState(1)       // 0=auto, 1-6=chars
@@ -260,6 +263,60 @@ export default function App() {
       if (agentAnimTimer.current) clearTimeout(agentAnimTimer.current)
     }
   }, [])
+
+  // ── trapdoor IPC listeners ───────────────────────────────────
+  const trapdoorPhaseRef = useRef(trapdoorPhase)
+  const showTodoRef = useRef(showTodo)
+  trapdoorPhaseRef.current = trapdoorPhase
+  showTodoRef.current = showTodo
+
+  useEffect(() => {
+    const c1 = window.wallE?.onTrapdoorStartHide(() => {
+      const phase = trapdoorPhaseRef.current
+      if (phase) return  // animation in progress, ignore
+      if (showTodoRef.current) { closePanel(); setTimeout(() => setTrapdoorPhase('hide-opening'), 300); return }
+      setTrapdoorPhase('hide-opening')
+    })
+    const c2 = window.wallE?.onTrapdoorStartShow(() => {
+      const phase = trapdoorPhaseRef.current
+      // Only allow show when fully hidden (not during any animation)
+      if (phase !== 'hidden') return
+      setTrapdoorPhase('show-opening')
+    })
+    return () => { c1?.(); c2?.() }
+  }, [])  // register once, use refs for current state
+
+  // Trapdoor phase transitions
+  function onTrapdoorFlapsDone() {
+    if (trapdoorPhase === 'hide-opening')  setTrapdoorPhase('hide-falling')
+    else if (trapdoorPhase === 'hide-closing') {
+      setTrapdoorPhase('hidden')
+      // Delay hideComplete so the 'hidden' state is committed before window hides
+      setTimeout(() => window.wallE?.trapdoorHideComplete(), 50)
+    }
+    else if (trapdoorPhase === 'show-opening')  setTrapdoorPhase('show-rising')
+    else if (trapdoorPhase === 'show-closing') {
+      setTrapdoorPhase(null)
+      setAnimState('idle')
+    }
+  }
+
+  // Called by character when fall/rise animation completes
+  const handleTrapdoorAnimComplete = useCallback(() => {
+    if (trapdoorPhase === 'hide-falling') setTrapdoorPhase('hide-closing')
+    else if (trapdoorPhase === 'show-rising') setTrapdoorPhase('show-closing')
+  }, [trapdoorPhase])
+
+  // Derive animState for trapdoor phases
+  // 'trapdoor-held' keeps the character at Y=-3 during flap animations
+  const effectiveAnimState =
+      trapdoorPhase === 'hide-falling'  ? 'trapdoor-hide'
+    : trapdoorPhase === 'hide-closing'  ? 'trapdoor-held'
+    : trapdoorPhase === 'show-opening'  ? 'trapdoor-held'
+    : trapdoorPhase === 'show-rising'   ? 'trapdoor-show'
+    : animState
+
+  const isTrapdoorOpen = ['hide-opening', 'hide-falling', 'show-opening', 'show-rising'].includes(trapdoorPhase)
 
   // ── keyboard shortcuts ──────────────────────────────────────
   useEffect(() => {
@@ -537,32 +594,42 @@ export default function App() {
       </AnimatePresence>
 
       {/* ── Character canvas (compact mode only) ─────────────────── */}
-      {!showTodo && (
+      {!showTodo && trapdoorPhase !== 'hidden' && (
         <div className="bottom-row" onMouseDown={onMouseDown}>
-          <div className="walle-canvas-wrap"
+          <div className={`walle-canvas-wrap${trapdoorPhase ? ' trapdoor-active' : ''}`}
             onClick={handleCharClick}
             onContextMenu={handleRightClick}
             onMouseDown={onCanvasMouseDown}
-            onMouseEnter={() => {
-              if (!charTipShown.current) {
-                charTipShown.current = true
-                setShowCharTip(true)
-                setTimeout(() => setShowCharTip(false), 4000)
-              }
-            }}>
-            {pendingCount > 0 && (
+            >
+            {pendingCount > 0 && !trapdoorPhase && (
               <div className="task-badge">{pendingCount}</div>
             )}
+            <motion.div className="char-ground-shadow"
+              animate={{ opacity: trapdoorPhase ? 0 : 1 }}
+              transition={{ duration: 0.2 }}
+            />
+            {/* ── Trapdoor visual ──────────────────────────────── */}
             <AnimatePresence>
-              {showCharTip && (
-                <motion.div className="char-tooltip"
-                  initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0 }}>
-                  Click to open &middot; Drag to rotate &middot; Right-click for surprises
+              {trapdoorPhase && (
+                <motion.div className="trapdoor-container"
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                >
+                  <motion.div className="trapdoor-hole"
+                    animate={{ opacity: isTrapdoorOpen ? 1 : 0 }}
+                    transition={{ duration: 0.2 }}
+                  />
+                  <motion.div className="trapdoor-flap trapdoor-flap-left"
+                    animate={{ rotateX: isTrapdoorOpen ? -90 : 0 }}
+                    transition={{ duration: 0.3, ease: 'easeInOut' }}
+                    onAnimationComplete={onTrapdoorFlapsDone}
+                  />
+                  <motion.div className="trapdoor-flap trapdoor-flap-right"
+                    animate={{ rotateX: isTrapdoorOpen ? 90 : 0 }}
+                    transition={{ duration: 0.3, ease: 'easeInOut' }}
+                  />
                 </motion.div>
               )}
             </AnimatePresence>
-            <div className="char-ground-shadow" />
             <ErrorBoundary fallback={
               <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48, cursor: 'pointer' }}
                 onClick={handleCharClick}>{charMeta.icon}</div>
@@ -580,7 +647,8 @@ export default function App() {
                 <directionalLight position={[-4, 3, -3]} intensity={0.5} color="#FFB070" />
                 <pointLight       position={[0, 4, 3]}   intensity={0.7} color="#FFFFFF" />
                 <RotationGroup manualRotRef={manualRotRef}>
-                  <CharacterRenderer charId={charId} animState={animState} onAnimComplete={handleCelebDone} />
+                  <CharacterRenderer charId={charId} animState={effectiveAnimState}
+                    onAnimComplete={trapdoorPhase ? handleTrapdoorAnimComplete : handleCelebDone} />
                 </RotationGroup>
               </Canvas>
             </ErrorBoundary>

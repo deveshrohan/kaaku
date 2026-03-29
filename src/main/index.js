@@ -1,10 +1,10 @@
-import { app, BrowserWindow, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, screen, globalShortcut, Tray, nativeImage, Menu } from 'electron'
 import { join } from 'path'
 import fs from 'fs'
 import http from 'http'
 import AutoLaunch from 'electron-auto-launch'
 import { syncSlack, diagnoseSlack } from './slack.js'
-import { connectGmail, syncGmail } from './gmail.js'
+import { connectGmail, syncGmail, checkGmailResolutions } from './gmail.js'
 import { testJiraConnection } from './atlassian.js'
 import { testRedashConnection } from './redash.js'
 import { testGithubConnection } from './github.js'
@@ -160,25 +160,37 @@ async function runSync() {
           updatedTodos = updatedTodos.map(t => updatedMap.has(t.id) ? updatedMap.get(t.id) : t)
         }
         if (result.todos.length > 0) {
-          // ── Dedup: one active task per conversation ──────────────
-          // Only dedup against ACTIVE (not done) tasks. Once a task is
-          // completed, new messages from the same person/thread create
-          // fresh tasks. processedIds (in slack.js) already prevent the
-          // same raw message from being re-classified.
+          // ── Dedup: one task per conversation (active OR recently completed) ──
+          // Check against active tasks AND tasks completed within the
+          // lookback window. This prevents the same DM task from being
+          // re-created immediately after the user marks it done.
           //
           // Keys:
           //   DMs       → channelId (one task per person)
           //   Threads   → channelId:threadTs (one task per thread root)
           //   Mentions  → channelId:threadTs (threadTs = msg.ts, unique)
+          const lookbackMs = (settings.lookbackHours || 24) * 3600 * 1000
+          const recentCutoff = Date.now() - lookbackMs
           const activeDmChannels = new Set()
           const activeThreadKeys = new Set()
           for (const t of updatedTodos) {
-            if (t.source !== 'slack' || !t.slackChannel || t.done) continue
+            if (t.source !== 'slack' || !t.slackChannel) continue
+            // Include active tasks AND tasks completed within lookback window
+            const isActive = !t.done
+            const isRecentlyDone = t.done && t.createdAt && t.createdAt > recentCutoff
+            if (!isActive && !isRecentlyDone) continue
             if (!t.slackThreadTs) activeDmChannels.add(t.slackChannel)
             else activeThreadKeys.add(`${t.slackChannel}:${t.slackThreadTs}`)
           }
+          // Collect recent task texts for text-similarity dedup (normalised)
+          const normalize = s => (s || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
+          const recentTexts = updatedTodos
+            .filter(t => t.source === 'slack' && t.createdAt && t.createdAt > recentCutoff)
+            .map(t => normalize(t.text))
+
           const newTodos = result.todos.filter(t => {
             if (!t.slackChannel) return true
+            // Layer 1: structural dedup (channel / thread key)
             if (!t.slackThreadTs && activeDmChannels.has(t.slackChannel)) {
               console.log(`[sync] dedup: DM channel ${t.slackChannelName || t.slackChannel} already has active task`)
               return false
@@ -187,9 +199,16 @@ async function runSync() {
               console.log(`[sync] dedup: thread ${t.slackChannelName}:${t.slackThreadTs} already has active task`)
               return false
             }
+            // Layer 2: text similarity — skip if a recent task has near-identical text
+            const norm = normalize(t.text)
+            if (norm.length > 0 && recentTexts.some(existing => existing === norm || (norm.length > 10 && existing.includes(norm)) || (existing.length > 10 && norm.includes(existing)))) {
+              console.log(`[sync] dedup: text match — "${t.text}" already exists`)
+              return false
+            }
             // Track within this batch to prevent intra-sync duplicates
             if (!t.slackThreadTs) activeDmChannels.add(t.slackChannel)
             else activeThreadKeys.add(`${t.slackChannel}:${t.slackThreadTs}`)
+            recentTexts.push(norm)
             return true
           })
           if (newTodos.length > 0) {
@@ -222,6 +241,20 @@ async function runSync() {
     // ── Gmail ────────────────────────────────────────────────────
     if (hasGmail) {
       try {
+        // Check if user replied to threads with pending Gmail TODOs
+        const pendingGmailTasks = updatedTodos.filter(t => !t.done && t.source === 'gmail' && t.gmailThreadId)
+        if (pendingGmailTasks.length > 0) {
+          const gmailRes = await checkGmailResolutions(settings.gmailTokens, pendingGmailTasks)
+          if (gmailRes.resolvedIds.length > 0) {
+            updatedTodos = updatedTodos.map(t =>
+              gmailRes.resolvedIds.includes(t.id) ? { ...t, done: true, completedAt: Date.now() } : t
+            )
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              try { mainWindow.webContents.send('todos:resolved', gmailRes.resolvedIds) } catch {}
+            }
+          }
+        }
+
         const result = await syncGmail({
           tokens:        settings.gmailTokens,
           lookbackHours: settings.lookbackHours,
@@ -231,14 +264,48 @@ async function runSync() {
           processedIds:  settings.gmailProcessedIds || [],
         })
         if (result.todos.length > 0) {
-          // Dedup: skip tasks whose gmailId already exists
+          // ── Gmail dedup: three layers ──────────────────────────
+          // Layer 1: gmailId (exact email)
           const existingGmailIds = new Set(
             updatedTodos.filter(t => t.source === 'gmail' && t.gmailId).map(t => t.gmailId)
           )
+          // Layer 2: threadId (same thread = same TODO)
+          const existingThreadIds = new Set(
+            updatedTodos.filter(t => t.source === 'gmail' && t.gmailThreadId).map(t => t.gmailThreadId)
+          )
+          // Layer 3: text+sender similarity (catches "review deal" x4)
+          const gmailNormalize = s => (s || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
+          const gmailLookbackMs = (settings.lookbackHours || 24) * 3600 * 1000
+          const gmailRecentCutoff = Date.now() - gmailLookbackMs
+          const recentGmailTexts = updatedTodos
+            .filter(t => t.source === 'gmail' && t.createdAt && t.createdAt > gmailRecentCutoff)
+            .map(t => ({ norm: gmailNormalize(t.text), from: gmailNormalize(t.gmailFrom || '') }))
+
           const newTodos = result.todos.filter(t => {
-            if (!t.gmailId) return true
-            if (existingGmailIds.has(t.gmailId)) return false
-            existingGmailIds.add(t.gmailId)
+            // Layer 1: exact gmailId
+            if (t.gmailId && existingGmailIds.has(t.gmailId)) {
+              console.log(`[sync] gmail dedup: id ${t.gmailId} already exists`)
+              return false
+            }
+            // Layer 2: same thread already has a TODO
+            if (t.gmailThreadId && existingThreadIds.has(t.gmailThreadId)) {
+              console.log(`[sync] gmail dedup: thread ${t.gmailThreadId} already has task`)
+              return false
+            }
+            // Layer 3: same text from same sender recently
+            const norm = gmailNormalize(t.text)
+            const fromNorm = gmailNormalize(t.gmailFrom || '')
+            if (norm.length > 0 && recentGmailTexts.some(ex =>
+              (ex.norm === norm || (norm.length > 10 && ex.norm.includes(norm)) || (ex.norm.length > 10 && norm.includes(ex.norm)))
+              && fromNorm && ex.from && (ex.from.includes(fromNorm.split('<')[0].trim()) || fromNorm.includes(ex.from.split('<')[0].trim()))
+            )) {
+              console.log(`[sync] gmail dedup: text+sender match — "${t.text}"`)
+              return false
+            }
+            // Track within batch
+            if (t.gmailId) existingGmailIds.add(t.gmailId)
+            if (t.gmailThreadId) existingThreadIds.add(t.gmailThreadId)
+            recentGmailTexts.push({ norm, from: fromNorm })
             return true
           })
           if (newTodos.length < result.todos.length) {
@@ -393,6 +460,22 @@ function startSyncTimer(intervalMinutes) {
   }
 }
 
+let onHideStateChanged = null  // set by tray setup to update menu label
+let isHidden = false
+
+function trapdoorShow() {
+  if (!isHidden || !mainWindow || mainWindow.isDestroyed()) return
+  const pos = getBottomCenter(COMPACT.w, COMPACT.h)
+  mainWindow.setSize(COMPACT.w, COMPACT.h)
+  mainWindow.setPosition(pos.x, pos.y)
+  // Send event BEFORE showing so the renderer can position the character at Y=-3.
+  // Delay show() so the hidden position is committed before the window becomes visible.
+  mainWindow.webContents.send('trapdoor:start-show')
+  setTimeout(() => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show() }, 100)
+  isHidden = false
+  if (typeof onHideStateChanged === 'function') onHideStateChanged()
+}
+
 // ── Window ────────────────────────────────────────────────────────
 function getBottomCenter(w, h) {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
@@ -478,6 +561,18 @@ function createWindow() {
 
   ipcMain.handle('set-panel-open', (_, open) => open ? openOffice() : closeOffice())
   ipcMain.handle('set-bubble-open', (_, open) => resizeTo(open ? BUBBLE : COMPACT))
+
+  // ── Trapdoor hide/show ──────────────────────────────────────────
+  ipcMain.handle('trapdoor:hide-complete', () => {
+    mainWindow.hide()
+    isHidden = true
+    if (typeof onHideStateChanged === 'function') onHideStateChanged()
+  })
+
+  ipcMain.on('trapdoor:request-hide', () => {
+    if (isHidden || !mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.webContents.send('trapdoor:start-hide')
+  })
 
   ipcMain.handle('move-window', (_, { dx, dy }) => {
     const { width, height } = screen.getPrimaryDisplay().bounds
@@ -885,6 +980,43 @@ app.whenReady().then(() => {
   if (process.platform === 'darwin') app.dock.hide()
   createWindow()
   startEventServer()
+
+  // ── Tray icon ──────────────────────────────────────────────────
+  const trayIcon = nativeImage.createFromPath(join(__dirname, '../../build/icon.png')).resize({ width: 18, height: 18 })
+  trayIcon.setTemplateImage(true)
+  const tray = new Tray(trayIcon)
+  tray.setToolTip('Kaaku')
+
+  // Rebuild the tray context menu dynamically so the label reflects current state
+  function updateTrayMenu() {
+    tray.setContextMenu(Menu.buildFromTemplate([
+      {
+        label: isHidden ? 'Show' : 'Hide',
+        click: () => {
+          if (!mainWindow || mainWindow.isDestroyed()) return
+          if (isHidden) {
+            trapdoorShow()
+          } else {
+            mainWindow.webContents.send('trapdoor:start-hide')
+          }
+        },
+      },
+      { type: 'separator' },
+      { label: 'Quit', click: () => app.quit() },
+    ]))
+  }
+  updateTrayMenu()
+  onHideStateChanged = updateTrayMenu
+
+  // ── Global shortcut ────────────────────────────────────────────
+  globalShortcut.register('CommandOrControl+Shift+H', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    if (isHidden) {
+      trapdoorShow()
+    } else {
+      mainWindow.webContents.send('trapdoor:start-hide')
+    }
+  })
   if (app.isPackaged) {
     autoLauncher.isEnabled().then(enabled => { if (!enabled) autoLauncher.enable() })
   }
@@ -899,4 +1031,5 @@ app.whenReady().then(() => {
   }
 })
 
+app.on('will-quit', () => globalShortcut.unregisterAll())
 app.on('window-all-closed', () => app.quit())

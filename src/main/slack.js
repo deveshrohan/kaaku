@@ -124,13 +124,20 @@ async function buildConversationUnits(slack, userId, oldest, processedSet) {
       if (ch.is_im || ch.is_mpim) {
         // DM / Group DM: entire lookback window = one conversation unit
         const sorted = [...msgs].reverse() // oldest first
-        const newKeys = sorted
-          .filter(m => !processedSet.has(`${ch.id}:${m.ts}`))
-          .map(m => `${ch.id}:${m.ts}`)
+        const newMsgs = sorted.filter(m => !processedSet.has(`${ch.id}:${m.ts}`))
+        const newKeys = newMsgs.map(m => `${ch.id}:${m.ts}`)
         if (newKeys.length === 0) continue
 
+        // Only send new messages to the LLM, plus a small tail of old messages
+        // for context. Sending the full 24h conversation causes the LLM to
+        // re-extract tasks from already-handled messages.
+        const CONTEXT_TAIL = 3
+        const newTsSet = new Set(newMsgs.map(m => m.ts))
+        const oldContext = sorted.filter(m => !newTsSet.has(m.ts)).slice(-CONTEXT_TAIL)
+        const msgsForUnit = [...oldContext, ...newMsgs]
+
         // Resolve any senders not already in cache
-        for (const m of sorted) await getName(slack, m.user)
+        for (const m of msgsForUnit) await getName(slack, m.user)
 
         // For 1-on-1 DMs: use the other person's display name as channel name.
         // For group DMs: clean up the auto-generated "mpdm-alice--bob-1" format.
@@ -148,7 +155,7 @@ async function buildConversationUnits(slack, userId, oldest, processedSet) {
           type: ch.is_im ? 'dm' : 'group_dm',
           channelId: ch.id,
           channelName,
-          messages: sorted.map(m => ({
+          messages: msgsForUnit.map(m => ({
             ts: m.ts, user: m.user, isMe: m.user === userId,
             text: m.text || '', reactions: m.reactions || [],
           })),

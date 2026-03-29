@@ -1522,15 +1522,33 @@ textarea:focus-visible,
 
 
 /* ── Character tooltip (Phase 6) ─────────────────────────────── */
-.char-tooltip {
-  position: absolute; bottom: 186px; left: 50%;
-  transform: translateX(-50%);
-  background: var(--bg-overlay); border: 1px solid var(--border-primary);
-  border-radius: 8px; padding: 6px 12px;
-  font-size: var(--font-sm); color: var(--text-secondary);
-  white-space: nowrap; pointer-events: none;
-  z-index: 20;
+
+/* ── Trapdoor hide/show ─────────────────────────────────────── */
+.walle-canvas-wrap.trapdoor-active {
+  clip-path: inset(0 0 22px 0);  /* clip at ground level so character sinks into "floor" */
 }
+.trapdoor-container {
+  position: absolute; bottom: 12px; left: 50%;
+  transform: translateX(-50%);
+  width: 80px; height: 20px;
+  pointer-events: none; z-index: 5;
+  perspective: 200px;
+}
+.trapdoor-hole {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.3) 50%, transparent 75%);
+}
+.trapdoor-flap {
+  position: absolute; top: 0;
+  width: 50%; height: 100%;
+  background: linear-gradient(180deg, #3a3a3a 0%, #2a2a2a 100%);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 2px;
+}
+.trapdoor-flap-left  { left: 0;  transform-origin: left center; }
+.trapdoor-flap-right { right: 0; transform-origin: right center; }
+
 
 /* ═══════════════════════════════════════════════════════════════════
    SIDEBAR MODE

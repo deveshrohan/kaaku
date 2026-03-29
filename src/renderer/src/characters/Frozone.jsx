@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { useRef, useEffect, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
+import handleTrapdoor from './useTrapdoorAnim'
 
 export const meta = { id: 'frozone', name: 'Frozone', icon: '❄️', color: '#3A6FBF' }
 
@@ -141,6 +142,7 @@ export default function Frozone({ animState, onAnimComplete }) {
     const ip = icePlatformRef.current
 
     if (!g || !h || !la || !ra || !ip) return
+    if (handleTrapdoor(g, a, dt, onAnimComplete)) return
 
     if (a.state === 'idle') {
       a.idleT += dt
