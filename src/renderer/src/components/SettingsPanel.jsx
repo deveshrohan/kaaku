@@ -481,6 +481,10 @@ export default function SettingsPanel() {
       githubOrg:           cfg.githubOrg,
       agentProvider:       cfg.agentProvider,
       geminiApiKey:        cfg.geminiApiKey,
+      bedrockRegion:       cfg.bedrockRegion,
+      bedrockApiKey:       cfg.bedrockApiKey,
+      bedrockAccessKeyId:  cfg.bedrockAccessKeyId,
+      bedrockSecretAccessKey: cfg.bedrockSecretAccessKey,
       theme:               cfg.theme,
     })
     setDirty(false)
@@ -737,8 +741,18 @@ export default function SettingsPanel() {
                   className={`provider-btn${cfg.agentProvider === 'bedrock' ? ' active' : ''}`}
                   onClick={() => set('agentProvider', 'bedrock')}
                 >Bedrock</button>
+                <button
+                  className={`provider-btn${cfg.agentProvider === 'claude-code' ? ' active' : ''}`}
+                  onClick={() => set('agentProvider', 'claude-code')}
+                >Claude Code <span style={{ opacity: 0.5, fontSize: 9 }}>CLI</span></button>
               </div>
             </div>
+
+            {cfg.agentProvider === 'claude-code' && (
+              <p className="conn-hint" style={{ color: 'rgba(52,199,89,0.7)', padding: '4px 0' }}>
+                Uses your local <code>claude</code> CLI — no API key needed. Make sure Claude Code is installed and authenticated.
+              </p>
+            )}
 
             {/* Agent API key — Groq reuses the AI key, others show their own */}
             {cfg.agentProvider === 'groq' && !cfg.groqApiKey && (
@@ -806,7 +820,27 @@ export default function SettingsPanel() {
                   />
                 </div>
                 <div className="settings-field">
-                  <label className="settings-label">Access Key ID</label>
+                  <label className="settings-label">
+                    Bedrock API Key <span style={{ opacity: 0.4, fontSize: 9 }}>simplest — starts with ABSK</span>
+                  </label>
+                  <div className="settings-input-wrap">
+                    <input
+                      type={showKey ? 'text' : 'password'}
+                      className="settings-input"
+                      placeholder="ABSK..."
+                      value={cfg.bedrockApiKey || ''}
+                      onChange={e => set('bedrockApiKey', e.target.value)}
+                      spellCheck={false}
+                    />
+                    <button className="peek-btn" onClick={() => setShowKey(v => !v)}>
+                      {showKey ? '🙈' : '👁'}
+                    </button>
+                  </div>
+                </div>
+                <div className="settings-field" style={{ opacity: cfg.bedrockApiKey ? 0.4 : 1 }}>
+                  <label className="settings-label">
+                    Access Key ID <span style={{ opacity: 0.4, fontSize: 9 }}>alternative to API Key</span>
+                  </label>
                   <div className="settings-input-wrap">
                     <input
                       type={showKey ? 'text' : 'password'}
@@ -815,13 +849,11 @@ export default function SettingsPanel() {
                       value={cfg.bedrockAccessKeyId || ''}
                       onChange={e => set('bedrockAccessKeyId', e.target.value)}
                       spellCheck={false}
+                      disabled={!!cfg.bedrockApiKey}
                     />
-                    <button className="peek-btn" onClick={() => setShowKey(v => !v)}>
-                      {showKey ? '🙈' : '👁'}
-                    </button>
                   </div>
                 </div>
-                <div className="settings-field">
+                <div className="settings-field" style={{ opacity: cfg.bedrockApiKey ? 0.4 : 1 }}>
                   <label className="settings-label">Secret Access Key</label>
                   <div className="settings-input-wrap">
                     <input
@@ -831,10 +863,8 @@ export default function SettingsPanel() {
                       value={cfg.bedrockSecretAccessKey || ''}
                       onChange={e => set('bedrockSecretAccessKey', e.target.value)}
                       spellCheck={false}
+                      disabled={!!cfg.bedrockApiKey}
                     />
-                    <button className="peek-btn" onClick={() => setShowKey(v => !v)}>
-                      {showKey ? '🙈' : '👁'}
-                    </button>
                   </div>
                 </div>
               </>

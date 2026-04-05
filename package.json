@@ -19,10 +19,12 @@
       "out/**/*",
       "node_modules/@slack/web-api/**/*",
       "node_modules/@anthropic-ai/sdk/**/*",
+      "node_modules/@modelcontextprotocol/sdk/**/*",
       "node_modules/electron-auto-launch/**/*"
     ],
     "extraResources": [
-      { "from": "build/icon.png", "to": "icon.png" }
+      { "from": "build/icon.png", "to": "icon.png" },
+      { "from": "out/main/mcp-worker.js", "to": "mcp-worker.js" }
     ],
     "asarUnpack": [
       "out/renderer/assets/*.glb"
@@ -52,6 +54,7 @@
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^0.26.4",
     "@anthropic-ai/sdk": "^0.78.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@react-three/drei": "^9.99.0",
     "@react-three/fiber": "^8.15.0",
     "@slack/web-api": "^7.15.0",

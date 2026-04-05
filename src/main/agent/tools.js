@@ -314,6 +314,33 @@ const TOOL_DEFS = {
       required: ['url'],
     },
   },
+  save_memory: {
+    name: 'save_memory',
+    description: 'Save a fact or discovery for future runs. Use this when you discover something reusable: board IDs, repo paths, Redash query IDs, project keys, team conventions, or user preferences. These are persisted and injected into future agent runs so you don\'t have to rediscover them.',
+    write: false,
+    integration: null,
+    input_schema: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Short label for the fact (e.g. "seekers sprint board ID", "payments repo path")' },
+        value: { type: 'string', description: 'The fact itself (e.g. "42", "recur-club/payments-api")' },
+      },
+      required: ['key', 'value'],
+    },
+  },
+  ask_user: {
+    name: 'ask_user',
+    description: 'Ask the user a clarifying question when the task is too vague to proceed. Use this BEFORE searching or taking action when you need to understand what specifically to investigate, what the expected outcome is, or what context is missing. The user will reply and you can continue.',
+    write: false,
+    integration: null,
+    input_schema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: 'The clarifying question to ask the user' },
+      },
+      required: ['question'],
+    },
+  },
   delegate_to_specialist: {
     name: 'delegate_to_specialist',
     description: 'Delegate a sub-task to a specialist. Use this to route work to the right team member.',
@@ -333,17 +360,19 @@ const TOOL_DEFS = {
 
 // ── Tool scoping per agent type ─────────────────────────────────────
 
-const INTERNAL_TOOLS = ['delegate_to_specialist']
+const INTERNAL_TOOLS = ['delegate_to_specialist', 'ask_user', 'save_memory']
 const INTEGRATION_TOOLS = Object.keys(TOOL_DEFS).filter(n => !INTERNAL_TOOLS.includes(n))
 
-const AGENT_TOOLS = {
-  'generic':       INTEGRATION_TOOLS,
-  'pm':            [...INTEGRATION_TOOLS, 'delegate_to_specialist'],
-  'review-prd':    ['jira_get_issue', 'github_list_files', 'github_read_file', 'redash_search', 'redash_get_results', 'fetch_url'],
-  'create-prd':    ['jira_get_issue', 'jira_search', 'jira_create_issue', 'github_list_files', 'github_read_file', 'github_search_code', 'redash_search', 'redash_get_results', 'redash_run_query', 'fetch_url'],
-  'review-sprint': ['jira_list_sprints', 'jira_get_sprint', 'jira_search', 'jira_get_issue', 'jira_add_comment', 'jira_update_issue', 'jira_transition_issue', 'github_read_file'],
-  'implement-prd': ['jira_get_issue', 'jira_update_issue', 'jira_transition_issue', 'jira_add_comment', 'github_list_files', 'github_read_file', 'github_search_code', 'github_create_branch', 'github_create_or_update_file', 'github_create_pr', 'redash_search', 'redash_get_results', 'fetch_url'],
-  'lookup-reply':  ['redash_search', 'redash_get_results', 'redash_run_query', 'jira_search', 'jira_get_issue', 'github_read_file', 'slack_post_message', 'gmail_send', 'fetch_url'],
+const COMMON_INTERNAL = ['ask_user', 'save_memory']
+
+export const AGENT_TOOLS = {
+  'generic':       [...INTEGRATION_TOOLS, ...COMMON_INTERNAL],
+  'pm':            [...INTEGRATION_TOOLS, 'delegate_to_specialist', ...COMMON_INTERNAL],
+  'review-prd':    ['jira_get_issue', 'github_list_files', 'github_read_file', 'redash_search', 'redash_get_results', 'fetch_url', ...COMMON_INTERNAL],
+  'create-prd':    ['jira_get_issue', 'jira_search', 'jira_create_issue', 'github_list_files', 'github_read_file', 'github_search_code', 'redash_search', 'redash_get_results', 'redash_run_query', 'fetch_url', ...COMMON_INTERNAL],
+  'review-sprint': ['jira_list_sprints', 'jira_get_sprint', 'jira_search', 'jira_get_issue', 'jira_add_comment', 'jira_update_issue', 'jira_transition_issue', 'github_read_file', ...COMMON_INTERNAL],
+  'implement-prd': ['jira_get_issue', 'jira_update_issue', 'jira_transition_issue', 'jira_add_comment', 'github_list_files', 'github_read_file', 'github_search_code', 'github_create_branch', 'github_create_or_update_file', 'github_create_pr', 'redash_search', 'redash_get_results', 'fetch_url', ...COMMON_INTERNAL],
+  'lookup-reply':  ['redash_search', 'redash_get_results', 'redash_run_query', 'jira_search', 'jira_get_issue', 'github_read_file', 'slack_post_message', 'gmail_send', 'fetch_url', ...COMMON_INTERNAL],
 }
 
 export function getToolsForAgent(agentType) {

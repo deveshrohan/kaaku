@@ -11,7 +11,9 @@ import { testGithubConnection } from './github.js'
 import { createRun, updateRun, addStep, addDraft, resolveDraft, getRun, listRuns } from './agent/runs.js'
 import { scoreRun, detectStuckRuns, aggregateEvals, extractAndSaveMemories } from './agent/evals.js'
 import { runAgent } from './agent/executor.js'
+import { runClaudeCodeAgent, specialistAgentType } from './agent/claude-code-executor.js'
 import { routeQuery, getTypeMeta } from './agent/router.js'
+import { saveMemory } from './agent/memory.js'
 
 export const SOCKET_PATH = '/tmp/kaaku.sock'
 
@@ -393,20 +395,25 @@ function pushEvent({ type, title, body = '', priority = 'high', source = 'system
 
 // Pending permission requests: id → { res, timer }
 const pendingPermissions = new Map()
+// MCP ask/draft requests pending user interaction: id → { res, timer }
+const pendingMcpAsks   = new Map()
+const pendingMcpDrafts = new Map()
+
+const MCP_ROUTES = new Set(['/event', '/permission', '/mcp/ask', '/mcp/draft', '/mcp/delegate', '/mcp/memory'])
 
 function startEventServer() {
   // Clean up stale socket from previous run
   try { fs.unlinkSync(SOCKET_PATH) } catch {}
 
   const server = http.createServer((req, res) => {
-    if (req.method !== 'POST' || ![ '/event', '/permission' ].includes(req.url)) {
+    if (req.method !== 'POST' || !MCP_ROUTES.has(req.url)) {
       res.writeHead(404).end()
       return
     }
 
     let body = ''
     let bodySize = 0
-    const MAX_BODY = 65536
+    const MAX_BODY = 524288  // 512 KB — delegate results can be large
     req.on('data', d => {
       bodySize += d.length
       if (bodySize > MAX_BODY) { res.writeHead(413).end('payload too large'); req.destroy(); return }
@@ -415,36 +422,29 @@ function startEventServer() {
     req.on('end', () => {
       try {
         const payload = JSON.parse(body)
-        if (!payload.title || typeof payload.title !== 'string') { res.writeHead(400).end('missing title'); return }
 
+        // ── /event ────────────────────────────────────────────────────
         if (req.url === '/event') {
-          // Fire-and-forget: push to UI, respond immediately
+          if (!payload.title || typeof payload.title !== 'string') { res.writeHead(400).end('missing title'); return }
           const todo = pushEvent(payload)
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true, id: todo.id }))
 
-        } else {
-          // /permission: hold connection open until user responds (or 30s timeout)
+        // ── /permission ───────────────────────────────────────────────
+        } else if (req.url === '/permission') {
+          if (!payload.title || typeof payload.title !== 'string') { res.writeHead(400).end('missing title'); return }
           const permId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
           const notification = {
             id: crypto.randomUUID(),
             text: payload.body
               ? `${payload.title}: ${payload.body}`.slice(0, 120)
               : payload.title.slice(0, 120),
-            done: false,
-            priority: 'high',
-            source: 'claude-code',
-            eventType: 'claude-permission',
-            permissionId: permId,
-            requiresResponse: true,
+            done: false, priority: 'high', source: 'claude-code',
+            eventType: 'claude-permission', permissionId: permId, requiresResponse: true,
           }
-
-          // Push bubble to renderer (do NOT save to todos — it's transient)
           if (mainWindow && !mainWindow.isDestroyed()) {
             try { mainWindow.webContents.send('todos:pushed', [notification]) } catch {}
           }
-
-          // Timeout: allow by default after 30s if user doesn't respond
           const timer = setTimeout(() => {
             if (pendingPermissions.has(permId)) {
               pendingPermissions.delete(permId)
@@ -452,9 +452,129 @@ function startEventServer() {
               res.end(JSON.stringify({ action: 'allow', reason: 'timeout' }))
             }
           }, 30000)
-
           pendingPermissions.set(permId, { res, timer })
+
+        // ── /mcp/ask — agent wants to ask the user a question ─────────
+        } else if (req.url === '/mcp/ask') {
+          const { runId, question } = payload
+          const askId = `ask-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+          const timer = setTimeout(() => {
+            if (pendingMcpAsks.has(askId)) {
+              pendingMcpAsks.delete(askId)
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ reply: '' }))
+            }
+          }, 5 * 60 * 1000)  // 5 min timeout
+
+          pendingMcpAsks.set(askId, { res, timer })
+
+          // Also store in the run's pendingReplies so agent:reply IPC resolves it
+          const control = activeAgents.get(runId)
+          if (control) control.pendingReplies.set(askId, null) // marker
+
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            try { mainWindow.webContents.send('agent:ask-user', runId, { id: askId, question }) } catch {}
+          }
+
+        // ── /mcp/draft — agent wants to take an action requiring approval
+        } else if (req.url === '/mcp/draft') {
+          const { runId, draftId, tool, args, preview, consequence } = payload
+          addDraft(runId, { id: draftId, tool, args, preview, consequence })
+
+          const timer = setTimeout(() => {
+            if (pendingMcpDrafts.has(draftId)) {
+              pendingMcpDrafts.delete(draftId)
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ approved: true, reason: 'timeout' }))
+            }
+          }, 10 * 60 * 1000)  // 10 min timeout
+
+          pendingMcpDrafts.set(draftId, { res, timer })
+
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            try { mainWindow.webContents.send('agent:draft', runId, { id: draftId, tool, args, preview, consequence }) } catch {}
+          }
+
+        // ── /mcp/delegate — PM delegates to a specialist ─────────────
+        } else if (req.url === '/mcp/delegate') {
+          const { runId, specialist, task_summary, context } = payload
+          const parentControl = activeAgents.get(runId)
+          if (!parentControl) {
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'Parent run not found' }))
+            return
+          }
+
+          const s = loadSettings()
+          const subType  = specialistAgentType(specialist)
+          const subRun   = createRun(subType, { query: task_summary, context: context || '' })
+          const subCtrl  = { cancelled: false, pendingDrafts: new Map(), pendingReplies: new Map() }
+          activeAgents.set(subRun.id, subCtrl)
+
+          // Fire walk animation on PM
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            try { mainWindow.webContents.send('agent:delegation', runId, { specialist }) } catch {}
+            // Tell the UI which specialist desk is now running
+            try { mainWindow.webContents.send('agent:sub-started', subRun.id, specialist) } catch {}
+          }
+
+          const subCallbacks = {
+            run: subRun, settings: s,
+            isCancelled: () => subCtrl.cancelled || parentControl.cancelled,
+
+            onStep: (rid, step) => {
+              addStep(rid, step)
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                try { mainWindow.webContents.send('agent:step-update', rid, step) } catch {}
+              }
+            },
+
+            onDraft: (rid, draft) => new Promise(resolve => {
+              addDraft(rid, draft)
+              subCtrl.pendingDrafts.set(draft.id, resolve)
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                try { mainWindow.webContents.send('agent:draft', rid, draft) } catch {}
+              }
+            }),
+
+            onAskUser: null,
+
+            onComplete: (rid, result) => {
+              updateRun(rid, { status: 'completed', result })
+              activeAgents.delete(rid)
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                try { mainWindow.webContents.send('agent:completed', rid, result) } catch {}
+              }
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ result }))
+            },
+
+            onFail: (rid, error) => {
+              updateRun(rid, { status: 'failed', error })
+              activeAgents.delete(rid)
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                try { mainWindow.webContents.send('agent:failed', rid, error) } catch {}
+              }
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error }))
+            },
+
+            onDelegation: null,
+          }
+
+          subCtrl.pendingDrafts = subCallbacks.onDraft.pendingDrafts || new Map()
+          subCtrl.pendingReplies = new Map()
+
+          runClaudeCodeAgent(subCallbacks).catch(err => subCallbacks.onFail(subRun.id, err.message))
+
+        // ── /mcp/memory — save a memory key-value ─────────────────────
+        } else if (req.url === '/mcp/memory') {
+          const { key, value } = payload
+          if (key && value) saveMemory('global', key, value)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true }))
         }
+
       } catch {
         res.writeHead(400).end('invalid json')
       }
@@ -786,6 +906,7 @@ function createWindow() {
     if (provider === 'claude' && !s.claudeApiKey) return { error: 'Claude API key required. Set it in Settings → Preferences → Agent.' }
     if (provider === 'gemini' && !s.geminiApiKey) return { error: 'Gemini API key required. Set it in Settings → Preferences → Agent.' }
     if (provider === 'groq' && !s.groqApiKey) return { error: 'Groq API key required. Set it in Settings → Preferences → AI.' }
+    // claude-code uses the local CLI — no API key needed (uses CLI's own auth)
     if (provider === 'bedrock') {
       const hasApiKey = !!(s.bedrockApiKey && s.bedrockApiKey.startsWith('ABSK'))
       const hasIamCreds = !!(s.bedrockAccessKeyId && s.bedrockSecretAccessKey)
@@ -895,7 +1016,8 @@ function createWindow() {
     control.pendingReplies = pendingReplies
 
     // Run agent in background (non-blocking)
-    runAgent(agentCallbacks).catch(err => {
+    const executor = (provider === 'claude-code') ? runClaudeCodeAgent : runAgent
+    executor(agentCallbacks).catch(err => {
       agentCallbacks.onFail(run.id, err.message)
     })
 
@@ -918,6 +1040,7 @@ function createWindow() {
   })
 
   ipcMain.handle('agent:approve-draft', (_, runId, draftId) => {
+    // API-based agent
     const control = activeAgents.get(runId)
     const resolve = control?.pendingDrafts?.get(draftId)
     if (resolve) {
@@ -925,10 +1048,20 @@ function createWindow() {
       resolve(true)
       control.pendingDrafts.delete(draftId)
     }
+    // MCP-based agent (Claude Code)
+    const mcpPending = pendingMcpDrafts.get(draftId)
+    if (mcpPending) {
+      resolveDraft(runId, draftId, true)
+      clearTimeout(mcpPending.timer)
+      pendingMcpDrafts.delete(draftId)
+      mcpPending.res.writeHead(200, { 'Content-Type': 'application/json' })
+      mcpPending.res.end(JSON.stringify({ approved: true }))
+    }
     return { ok: true }
   })
 
   ipcMain.handle('agent:reject-draft', (_, runId, draftId, reason) => {
+    // API-based agent
     const control = activeAgents.get(runId)
     const resolve = control?.pendingDrafts?.get(draftId)
     if (resolve) {
@@ -936,15 +1069,33 @@ function createWindow() {
       resolve(false)
       control.pendingDrafts.delete(draftId)
     }
+    // MCP-based agent (Claude Code)
+    const mcpPending = pendingMcpDrafts.get(draftId)
+    if (mcpPending) {
+      resolveDraft(runId, draftId, false, reason || null)
+      clearTimeout(mcpPending.timer)
+      pendingMcpDrafts.delete(draftId)
+      mcpPending.res.writeHead(200, { 'Content-Type': 'application/json' })
+      mcpPending.res.end(JSON.stringify({ approved: false }))
+    }
     return { ok: true }
   })
 
   ipcMain.handle('agent:reply', (_, runId, askId, message) => {
+    // API-based agent
     const control = activeAgents.get(runId)
     const resolve = control?.pendingReplies?.get(askId)
     if (resolve) {
       resolve(message)
       control.pendingReplies.delete(askId)
+    }
+    // MCP-based agent (Claude Code)
+    const mcpPending = pendingMcpAsks.get(askId)
+    if (mcpPending) {
+      clearTimeout(mcpPending.timer)
+      pendingMcpAsks.delete(askId)
+      mcpPending.res.writeHead(200, { 'Content-Type': 'application/json' })
+      mcpPending.res.end(JSON.stringify({ reply: message || '' }))
     }
     return { ok: true }
   })

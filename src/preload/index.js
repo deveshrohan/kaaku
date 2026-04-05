@@ -63,6 +63,11 @@ contextBridge.exposeInMainWorld('wallE', {
     ipcRenderer.on('agent:delegation', handler)
     return () => ipcRenderer.removeListener('agent:delegation', handler)
   },
+  onAgentSubStarted: (cb) => {
+    const handler = (_, subRunId, specialist) => cb(subRunId, specialist)
+    ipcRenderer.on('agent:sub-started', handler)
+    return () => ipcRenderer.removeListener('agent:sub-started', handler)
+  },
   onTodosPushed: (cb) => {
     const handler = (_, todos) => cb(todos)
     ipcRenderer.on('todos:pushed', handler)

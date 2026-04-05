@@ -187,6 +187,11 @@ export default function OfficePanel({
           setTimeout(() => walkCharacter('pm', 'pm'), 4000)
         }
       }),
+      // Claude Code sub-agent started: register specialist desk as running
+      window.wallE?.onAgentSubStarted?.((subRunId, specialist) => {
+        setAgentRunning(prev => ({ ...prev, [specialist]: subRunId }))
+        setAgentPhases(prev => ({ ...prev, [specialist]: 'gathering' }))
+      }),
       // Draft approval — push to attention queue (supports parallel)
       window.wallE?.onAgentDraft?.((rid, draft) => {
         const role = roleForRun(rid)
@@ -256,10 +261,12 @@ export default function OfficePanel({
     )
   }, [todos, search])
 
-  const completedTasks = useMemo(() =>
-    todos.filter(t => t.done).sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)).slice(0, 20),
+  const allDone = useMemo(() =>
+    todos.filter(t => t.done).sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)),
     [todos]
   )
+  const completedTasks = useMemo(() => allDone.slice(0, 20), [allDone])
+  const completedCount = allDone.length
 
   const totalDelegated = todos.filter(t => !t.done && t.delegatedTo).length
 
@@ -365,7 +372,7 @@ export default function OfficePanel({
         <span className="office-stats">
           {pendingInbox.length} inbox
           {totalDelegated > 0 && <> &middot; {totalDelegated} assigned</>}
-          {completedTasks.length > 0 && <> &middot; {completedTasks.length} done</>}
+          {completedCount > 0 && <> &middot; {completedCount} done</>}
         </span>
         {approvalCount > 0 && (
           <span className="attn-header-badge" title={`${approvalCount} item${approvalCount > 1 ? 's' : ''} need attention`}>
@@ -554,6 +561,7 @@ export default function OfficePanel({
                     todoTasks={pendingInbox}
                     inProgressTasks={inProgressTasks}
                     completedTasks={completedTasks}
+                    completedCount={completedCount}
                     setTodos={setTodos}
                     search={search}
                     onSearchChange={setSearch}
@@ -1094,7 +1102,7 @@ function DeskDetail({ role, tasks, phase, isRunning, agentResult, agentSteps, on
 
 // ── Inbox View ──────────────────────────────────────────────────────
 
-function InboxView({ todoTasks, inProgressTasks, completedTasks, setTodos, search, onSearchChange, onDelegate, onRecall, onToggleDone, onDelete, onOpenAgent, agentPhases, agentSteps, agentRunning, onSelectTask }) {
+function InboxView({ todoTasks, inProgressTasks, completedTasks, completedCount, setTodos, search, onSearchChange, onDelegate, onRecall, onToggleDone, onDelete, onOpenAgent, agentPhases, agentSteps, agentRunning, onSelectTask }) {
   const [input, setInput] = useState('')
   const [inputDeadline, setInputDeadline] = useState('')
   const [showDeadline, setShowDeadline] = useState(false)
@@ -1108,7 +1116,7 @@ function InboxView({ todoTasks, inProgressTasks, completedTasks, setTodos, searc
     if (!text) return
     const todo = { id: crypto.randomUUID(), text, done: false, createdAt: Date.now() }
     if (inputDeadline) todo.deadline = new Date(inputDeadline + 'T23:59:59').getTime()
-    setTodos(prev => [...prev, todo])
+    setTodos(prev => [todo, ...prev])
     setInput('')
     setInputDeadline('')
     setShowDeadline(false)
@@ -1274,12 +1282,12 @@ function InboxView({ todoTasks, inProgressTasks, completedTasks, setTodos, searc
       )}
 
       {/* ── Completed section ─────────────────────────────────── */}
-      {completedTasks.length > 0 && (
+      {completedCount > 0 && (
         <>
           <button className="inbox-section-toggle" onClick={() => setShowDone(!showDone)}>
             <span className="office-done-chevron" style={{ transform: showDone ? 'rotate(90deg)' : 'none' }}>&#9656;</span>
             <span className="inbox-section-label">Completed</span>
-            <span className="inbox-section-count">{completedTasks.length}</span>
+            <span className="inbox-section-count">{completedCount}</span>
           </button>
           <AnimatePresence>
             {showDone && (
