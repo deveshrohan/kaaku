@@ -206,12 +206,11 @@ export async function runClaudeCodeAgent({
 
   let proc
   try {
+    // Strip ANTHROPIC_API_KEY so the CLI uses its own OAuth session, not the API key
+    const { ANTHROPIC_API_KEY: _stripped, ...cleanEnv } = process.env
     proc = spawn(claudePath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        ...(settings.claudeApiKey ? { ANTHROPIC_API_KEY: settings.claudeApiKey } : {}),
-      },
+      env: cleanEnv,
     })
   } catch (err) {
     onFail(run.id, `Failed to spawn Claude Code: ${err.message}. Is 'claude' installed?`)
