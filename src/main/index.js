@@ -9,7 +9,7 @@ import { testJiraConnection } from './atlassian.js'
 import { testRedashConnection } from './redash.js'
 import { testGithubConnection } from './github.js'
 import { createRun, updateRun, addStep, addDraft, resolveDraft, getRun, listRuns } from './agent/runs.js'
-import { scoreRun, detectStuckRuns, aggregateEvals } from './agent/evals.js'
+import { scoreRun, detectStuckRuns, aggregateEvals, extractAndSaveMemories } from './agent/evals.js'
 import { runAgent } from './agent/executor.js'
 import { routeQuery, getTypeMeta } from './agent/router.js'
 
@@ -40,7 +40,21 @@ function atomicWriteFileSync(filePath, data, options) {
 // ── Todos ─────────────────────────────────────────────────────────
 function loadTodos() {
   try {
-    if (fs.existsSync(TODOS_FILE)) return JSON.parse(fs.readFileSync(TODOS_FILE, 'utf8'))
+    if (fs.existsSync(TODOS_FILE)) {
+      const todos = JSON.parse(fs.readFileSync(TODOS_FILE, 'utf8'))
+      // Backfill: set completedAt for done tasks missing it (one-time migration)
+      let migrated = false
+      for (const t of todos) {
+        if (t.done && !t.completedAt) {
+          t.completedAt = t.createdAt || Date.now()
+          migrated = true
+        }
+      }
+      if (migrated) {
+        try { atomicWriteFileSync(TODOS_FILE, JSON.stringify(todos, null, 2), 'utf8') } catch {}
+      }
+      return todos
+    }
   } catch {}
   return []
 }
@@ -84,6 +98,7 @@ const DEFAULT_SETTINGS = {
   agentProvider:     'groq',     // 'groq' | 'claude' | 'gemini' | 'bedrock'
   geminiApiKey:      '',
   bedrockRegion:         'us-east-1',
+  bedrockApiKey:         '',  // Bedrock API Key (starts with ABSK) — simplest auth
   bedrockAccessKeyId:    '',
   bedrockSecretAccessKey: '',
   // Onboarding
@@ -113,7 +128,7 @@ const SAVEABLE_SETTINGS = new Set([
   'redashUrl', 'redashApiKey',
   'githubToken', 'githubOrg',
   'agentProvider', 'geminiApiKey',
-  'bedrockRegion', 'bedrockAccessKeyId', 'bedrockSecretAccessKey',
+  'bedrockRegion', 'bedrockApiKey', 'bedrockAccessKeyId', 'bedrockSecretAccessKey',
   'onboardingComplete',
   'theme',
 ])
@@ -150,7 +165,7 @@ async function runSync() {
 
         if (result.resolvedIds?.length > 0) {
           updatedTodos = updatedTodos.map(t =>
-            result.resolvedIds.includes(t.id) ? { ...t, done: true } : t
+            result.resolvedIds.includes(t.id) ? { ...t, done: true, completedAt: Date.now() } : t
           )
           if (mainWindow && !mainWindow.isDestroyed()) {
             try { mainWindow.webContents.send('todos:resolved', result.resolvedIds) } catch {}
@@ -513,6 +528,13 @@ function createWindow() {
   mainWindow.setAlwaysOnTop(true, 'floating', 1)
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
+  // Pin zoom to 1.0 — connecting/disconnecting displays can drift it
+  const pinZoom = () => mainWindow.webContents.setZoomFactor(1)
+  mainWindow.webContents.on('did-finish-load', pinZoom)
+  screen.on('display-added', pinZoom)
+  screen.on('display-removed', pinZoom)
+  screen.on('display-metrics-changed', pinZoom)
+
   if (process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
@@ -764,7 +786,14 @@ function createWindow() {
     if (provider === 'claude' && !s.claudeApiKey) return { error: 'Claude API key required. Set it in Settings → Preferences → Agent.' }
     if (provider === 'gemini' && !s.geminiApiKey) return { error: 'Gemini API key required. Set it in Settings → Preferences → Agent.' }
     if (provider === 'groq' && !s.groqApiKey) return { error: 'Groq API key required. Set it in Settings → Preferences → AI.' }
-    if (provider === 'bedrock' && (!s.bedrockAccessKeyId || !s.bedrockSecretAccessKey)) return { error: 'AWS credentials required. Set them in Settings → Preferences → Agent.' }
+    if (provider === 'bedrock') {
+      const hasApiKey = !!(s.bedrockApiKey && s.bedrockApiKey.startsWith('ABSK'))
+      const hasIamCreds = !!(s.bedrockAccessKeyId && s.bedrockSecretAccessKey)
+      const hasEnvCreds = !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) || !!process.env.AWS_PROFILE
+      if (!hasApiKey && !hasIamCreds && !hasEnvCreds) {
+        return { error: 'AWS credentials required. Provide a Bedrock API Key (ABSK...), Access Key + Secret Key, or set AWS env vars.' }
+      }
+    }
 
     // Route query → agent type if no explicit type given
     let resolvedType = type
@@ -825,11 +854,12 @@ function createWindow() {
 
       onComplete: (runId, result) => {
         updateRun(runId, { status: 'completed', result })
-        // Score the run for evals
+        // Score the run and extract reusable memories
         const completedRun = getRun(runId)
         if (completedRun) {
           const evalResult = scoreRun(completedRun)
           updateRun(runId, { eval: evalResult })
+          extractAndSaveMemories(completedRun)
           console.log(`[agent] eval: run ${runId} scored ${evalResult.score}/100`)
         }
         activeAgents.delete(runId)
@@ -1021,8 +1051,14 @@ app.whenReady().then(() => {
   startEventServer()
 
   // ── Tray icon ──────────────────────────────────────────────────
-  const trayIcon = nativeImage.createFromPath(join(__dirname, '../../build/icon.png')).resize({ width: 18, height: 18 })
-  trayIcon.setTemplateImage(true)
+  // In packaged builds the icon lives in extraResources (process.resourcesPath);
+  // in dev it's at the repo root build/ folder.
+  const iconPath = app.isPackaged
+    ? join(process.resourcesPath, 'icon.png')
+    : join(__dirname, '../../build/icon.png')
+  const trayIcon = nativeImage.createFromPath(iconPath).resize({ width: 18, height: 18 })
+  // Do NOT use setTemplateImage — the icon is full-colour RGB with no alpha,
+  // so template mode renders it invisible on certain menu bars.
   const tray = new Tray(trayIcon)
   tray.setToolTip('Kaaku')
 

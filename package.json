@@ -1,6 +1,6 @@
 {
   "name": "kaaku",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Kaaku — a 3D animated desktop buddy and personal assistant built with Electron, React Three Fiber and GLB characters",
   "main": "out/main/index.js",
   "scripts": {
@@ -20,6 +20,9 @@
       "node_modules/@slack/web-api/**/*",
       "node_modules/@anthropic-ai/sdk/**/*",
       "node_modules/electron-auto-launch/**/*"
+    ],
+    "extraResources": [
+      { "from": "build/icon.png", "to": "icon.png" }
     ],
     "asarUnpack": [
       "out/renderer/assets/*.glb"
