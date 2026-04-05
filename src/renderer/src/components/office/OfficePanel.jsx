@@ -72,6 +72,11 @@ export default function OfficePanel({
     dismissAttention(item.id)
   }, [dismissAttention])
 
+  const replyToAttention = useCallback((item, message) => {
+    window.wallE?.replyToAgent(item.runId, item.askId, message)
+    dismissAttention(item.id)
+  }, [dismissAttention])
+
   // ── Character position & animation state ─────────────────────────
   const [charStates, setCharStates] = useState(() => {
     const init = {}
@@ -196,6 +201,11 @@ export default function OfficePanel({
       window.wallE?.onAgentDraft?.((rid, draft) => {
         const role = roleForRun(rid)
         pushAttention({ type: 'approval', runId: rid, role, draft })
+      }),
+      // Agent question — push a reply card to the attention queue
+      window.wallE?.onAgentAskUser?.((rid, { id: askId, question }) => {
+        const role = roleForRun(rid)
+        pushAttention({ type: 'question', runId: rid, role, askId, question })
       }),
       // Sync status
       window.wallE?.onSyncStatus?.(({ slackError, gmailError, slackAdded }) => {
@@ -357,7 +367,7 @@ export default function OfficePanel({
   }
 
   // Count approvals needing attention
-  const approvalCount = attentionQueue.filter(a => a.type === 'approval').length
+  const approvalCount = attentionQueue.filter(a => a.type === 'approval' || a.type === 'question').length
 
   return (
     <motion.div
@@ -480,7 +490,7 @@ export default function OfficePanel({
                 <div className="attn-queue-header">
                   <span className="attn-queue-title">Attention</span>
                   <span className="attn-queue-count">{attentionQueue.length}</span>
-                  {attentionQueue.length > 1 && attentionQueue.every(a => a.type !== 'approval') && (
+                  {attentionQueue.length > 1 && attentionQueue.every(a => a.type !== 'approval' && a.type !== 'question') && (
                     <button className="attn-queue-clear" onClick={() => setAttentionQueue([])}>Clear all</button>
                   )}
                 </div>
@@ -494,6 +504,7 @@ export default function OfficePanel({
                       onReject={() => rejectAttention(item)}
                       onDismiss={() => dismissAttention(item.id)}
                       onRetry={item.role ? () => startDeskAgent(item.role) : undefined}
+                      onReply={(msg) => replyToAttention(item, msg)}
                     />
                   ))}
                 </div>
@@ -587,10 +598,45 @@ export default function OfficePanel({
 
 // ── Attention Queue Item ────────────────────────────────────────────
 
-function AttentionItem({ item, lastThinking, onApprove, onReject, onDismiss, onRetry }) {
+function AttentionItem({ item, lastThinking, onApprove, onReject, onDismiss, onRetry, onReply }) {
   const [expanded, setExpanded] = useState(false)
+  const [replyText, setReplyText] = useState('')
   const roleColor = ROLE_COLORS[item.role] || '#888'
   const roleLabel = ROLE_LABELS[item.role] || item.role || 'Agent'
+
+  if (item.type === 'question') {
+    return (
+      <motion.div
+        className="attn-item attn-question"
+        initial={{ x: 20, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        exit={{ x: -20, opacity: 0, height: 0, marginBottom: 0 }}
+        layout
+      >
+        <div className="attn-item-header">
+          <span className="attn-role-dot" style={{ background: roleColor }} />
+          <span className="attn-role-label">{roleLabel}</span>
+          <span className="attn-type-badge" style={{ background: 'rgba(100,160,255,0.15)', color: '#64A0FF' }}>Question</span>
+        </div>
+        <div className="attn-consequence">{item.question}</div>
+        <div className="attn-reply-row">
+          <input
+            className="attn-reply-input"
+            placeholder="Type your reply…"
+            value={replyText}
+            onChange={e => setReplyText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && replyText.trim()) onReply(replyText.trim()) }}
+            autoFocus
+          />
+          <button
+            className="attn-approve-btn"
+            disabled={!replyText.trim()}
+            onClick={() => onReply(replyText.trim())}
+          >Send</button>
+        </div>
+      </motion.div>
+    )
+  }
 
   if (item.type === 'approval') {
     const action = ACTION_LABELS[item.draft.tool] || { label: item.draft.tool, color: '#C8A44A' }

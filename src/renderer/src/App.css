@@ -1304,6 +1304,24 @@ textarea:focus-visible,
 }
 .attn-approve-btn:hover { background: rgba(52,199,89,0.22); }
 
+/* Question item */
+.attn-question {
+  background: rgba(100,160,255,0.04);
+  border: 1px solid rgba(100,160,255,0.15);
+}
+.attn-reply-row {
+  display: flex; gap: 6px; align-items: center; margin-top: 6px;
+}
+.attn-reply-input {
+  flex: 1; padding: 4px 8px; border-radius: 5px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06);
+  color: var(--text-primary); font-size: var(--font-xs);
+  font-family: inherit; outline: none;
+}
+.attn-reply-input:focus { border-color: rgba(100,160,255,0.4); }
+.attn-approve-btn:disabled { opacity: 0.35; cursor: default; }
+
 /* Error item */
 .attn-error {
   background: rgba(255,69,58,0.05);

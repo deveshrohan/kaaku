@@ -200,6 +200,7 @@ export async function runClaudeCodeAgent({
     '--mcp-config',     JSON.stringify(mcpConfig),
     '--allowedTools',   allowedTools,
     '--dangerously-skip-permissions',
+    '--',          // end of flags — prevents task text starting with '-' being parsed as a CLI option
     userMessage,
   ]
 
